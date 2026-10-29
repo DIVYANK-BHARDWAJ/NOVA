@@ -2,6 +2,7 @@
 
 from nova.decision.contracts import ActionType, OrderType, TradeDecision
 from nova.decision.engine import DecisionEngineConfig, SentinelDecisionEngine
+from nova.decision.live_engine import LiveDecisionConfig, LiveDecisionCoreEngine
 
 __all__ = [
     "ActionType",
@@ -9,4 +10,6 @@ __all__ = [
     "TradeDecision",
     "DecisionEngineConfig",
     "SentinelDecisionEngine",
+    "LiveDecisionConfig",
+    "LiveDecisionCoreEngine",
 ]
