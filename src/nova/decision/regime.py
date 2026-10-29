@@ -1,13 +1,13 @@
-"""NOVA Market Regime Detection Subsystem (Person 3 Domain).
+"""NOVA Decision Intelligence — Market Regime Detection (Person 3 Exclusive Domain).
 
-Implements causal Efficiency Ratio (ER), EWMA volatility estimation (lambda=0.94),
+Implements Kaufman Efficiency Ratio (ER), EWMA volatility estimation (lambda=0.94),
 and adaptive trend-share calculation to categorize market regimes:
 - TRENDING: High efficiency ratio, directional persistence
 - RANGING: Low efficiency ratio, choppy oscillations
 - HIGH_VOLATILITY: EWMA volatility exceeding upper threshold
 - UNKNOWN / FALLBACK: Insufficient history or corrupted data
 
-Strictly ZERO hardcoding: all thresholds, windows, and decay factors are configuration-driven.
+Enforces 100% configuration-driven parameters with zero hardcoding.
 """
 
 from __future__ import annotations
@@ -144,7 +144,6 @@ class MarketRegimeDetector:
         latest_bar = bars[-1]
         as_of = latest_bar.source_timestamp
 
-        # Fallback on invalid data quality
         if latest_bar.data_quality != DataQualityStatus.VALID:
             return RegimeOutput(
                 regime_type=MarketRegimeType.UNKNOWN,
@@ -157,7 +156,6 @@ class MarketRegimeDetector:
                 reason_codes=("DATA_QUALITY_INVALID", f"STATUS_{latest_bar.data_quality.value}"),
             )
 
-        # Fallback on insufficient warmup
         if len(bars) < self.required_warmup_bars:
             return RegimeOutput(
                 regime_type=MarketRegimeType.UNKNOWN,

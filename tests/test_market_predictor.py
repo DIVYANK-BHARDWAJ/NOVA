@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from nova.models.predictor import CausalRidgePredictor, PredictionResult, PredictorConfig
+from nova.decision.prediction import CausalRidgePredictor, PredictionResult, PredictorConfig
 from nova.quant.contracts import DataQualityStatus
 from tests.test_person_3_strategies import create_synthetic_bars
 

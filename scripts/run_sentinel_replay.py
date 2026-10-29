@@ -105,7 +105,7 @@ def main() -> int:
     )
 
     from nova.decision.live_engine import LiveDecisionConfig, LiveDecisionCoreEngine
-    from nova.models.predictor import CausalRidgePredictor
+    from nova.decision.prediction import CausalRidgePredictor
 
     live_config = LiveDecisionConfig(
         sma_fast_window=5,

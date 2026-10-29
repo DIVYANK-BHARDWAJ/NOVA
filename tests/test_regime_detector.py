@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import unittest
 
 from nova.quant.contracts import ContractValidationError, DataQualityStatus
-from nova.regime.detector import (
+from nova.decision.regime import (
     MarketRegimeDetector,
     MarketRegimeType,
     RegimeConfig,

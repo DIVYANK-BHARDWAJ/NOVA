@@ -28,7 +28,8 @@ import uuid
 from typing import Mapping, Sequence
 
 from nova.decision.contracts import ActionType, OrderType, TradeDecision
-from nova.models.predictor import BasePredictor, CausalRidgePredictor, PredictionResult
+from nova.decision.prediction import BasePredictor, CausalRidgePredictor, PredictionResult
+from nova.decision.regime import MarketRegimeDetector, MarketRegimeType, RegimeConfig, RegimeOutput
 from nova.quant.contracts import (
     ContractValidationError,
     DataQualityStatus,
@@ -37,7 +38,6 @@ from nova.quant.contracts import (
     validate_finite,
     validate_timezone_aware,
 )
-from nova.regime.detector import MarketRegimeDetector, MarketRegimeType, RegimeConfig, RegimeOutput
 
 
 @dataclass(frozen=True, slots=True)

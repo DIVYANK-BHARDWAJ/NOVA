@@ -1,7 +1,13 @@
-"""NOVA Causal Machine Learning Prediction Interface (Person 3 Domain).
+"""NOVA Decision Intelligence — Causal Prediction Interface (Person 3 Exclusive Domain).
 
-Implements point-in-time statistical return prediction using chronological / walk-forward
-training, zero future-data leakage, and graceful fallback mechanics.
+Implements point-in-time statistical return prediction and ModelPrediction integration (Contract B)
+strictly within Person 3's decision subsystem, eliminating any file clash with Person 2 (models/).
+
+Features:
+- Standardized PredictionResult with defined score semantics and confidence
+- Causal Ridge Regression baseline model trained on chronological / walk-forward splits
+- Zero look-ahead bias and strict point-in-time causality enforcement
+- Robust fallback when models fail, data is missing, or prediction confidence is low
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ from nova.quant.contracts import (
 
 @dataclass(frozen=True, slots=True)
 class PredictionResult:
-    """Standardized prediction output produced causally."""
+    """Standardized prediction output consumed by the decision engine."""
     expected_return: float               # Forward return decimal estimate
     directional_probability: float      # P(return > 0) in [0.0, 1.0]
     confidence: float                   # Model conviction in [0.0, 1.0]
@@ -55,7 +61,7 @@ class PredictorConfig:
     l2_regularization: float = 1.0       # Ridge alpha
     min_train_bars: int = 30
     lookback_features: tuple[int, ...] = (1, 3, 5, 10)
-    model_id: str = "causal_ridge_predictor"
+    model_id: str = "decision_causal_ridge_predictor"
     model_version: str = "1.0.0"
 
     def __post_init__(self) -> None:
@@ -69,7 +75,7 @@ class PredictorConfig:
 
 
 class BasePredictor(ABC):
-    """Abstract interface for all causal return predictors."""
+    """Abstract interface for causal return predictors consumed by Decision Engine."""
 
     @abstractmethod
     def predict(self, bars: Sequence[MarketBar]) -> PredictionResult:
@@ -100,9 +106,9 @@ class CausalRidgePredictor(BasePredictor):
         return features
 
     def fit_chronological(self, bars: Sequence[MarketBar], train_fraction: float = 0.70) -> None:
-        """Fit strictly on the historical chronological split [0 : int(len(bars) * train_fraction)].
+        """Fit strictly on the chronological historical split [0 : int(len(bars) * train_fraction)].
 
-        Never uses observations after the cutoff timestamp.
+        Never uses observations after the cutoff timestamp, preventing look-ahead bias.
         """
         if len(bars) < self.config.min_train_bars:
             return
@@ -128,11 +134,9 @@ class CausalRidgePredictor(BasePredictor):
 
         # Solve Ridge Regression: (X^T X + alpha * I)^{-1} X^T y
         n_features = len(self.config.lookback_features)
-        # Add bias column
         X_design = [[1.0] + row for row in X]
         n_cols = n_features + 1
 
-        # Compute X^T X
         XtX = [[0.0] * n_cols for _ in range(n_cols)]
         Xty = [0.0] * n_cols
 
@@ -142,12 +146,11 @@ class CausalRidgePredictor(BasePredictor):
                 for c in range(n_cols):
                     XtX[r][c] += row[r] * row[c]
 
-        # Add Ridge L2 penalty (do not penalize bias at index 0)
+        # Add Ridge L2 penalty (exclude bias)
         alpha = self.config.l2_regularization
         for i in range(1, n_cols):
             XtX[i][i] += alpha
 
-        # Simple Gaussian elimination solver for small matrix (e.g. 5x5)
         try:
             coeffs = self._solve_linear_system(XtX, Xty)
             self.bias = coeffs[0]
@@ -162,7 +165,6 @@ class CausalRidgePredictor(BasePredictor):
         M = [row[:] + [b[i]] for i, row in enumerate(A)]
 
         for i in range(n):
-            # Pivot
             max_row = max(range(i, n), key=lambda r: abs(M[r][i]))
             M[i], M[max_row] = M[max_row], M[i]
 
@@ -199,13 +201,11 @@ class CausalRidgePredictor(BasePredictor):
         if feat is None:
             return self._build_fallback(as_of, reason="INSUFFICIENT_LOOKBACK_BARS")
 
-        # Fallback if model not fitted yet -> use simple 3-bar momentum heuristic
+        # Fallback if model not fitted yet -> use causal momentum heuristic
         if not self.is_fitted or self.weights is None:
             return self._build_heuristic_fallback(closes, as_of)
 
-        # Compute dot product
         raw_pred = self.bias + sum(w * f for w, f in zip(self.weights, feat))
-        # Logistic probability estimate
         prob = 1.0 / (1.0 + math.exp(-raw_pred / 0.005))
         confidence = min(0.90, max(0.20, abs(prob - 0.5) * 2.0))
 
@@ -235,11 +235,10 @@ class CausalRidgePredictor(BasePredictor):
         )
 
     def _build_heuristic_fallback(self, closes: Sequence[float], timestamp: datetime) -> PredictionResult:
-        # Heuristic 3-bar return
         ret3 = (closes[-1] - closes[-4]) / closes[-4] if len(closes) >= 4 else 0.0
         prob = 1.0 / (1.0 + math.exp(-ret3 / 0.01))
         return PredictionResult(
-            expected_return=ret3 * 0.2, # Conservative dampen
+            expected_return=ret3 * 0.20,
             directional_probability=prob,
             confidence=0.35,
             horizon_bars=self.config.horizon_bars,
