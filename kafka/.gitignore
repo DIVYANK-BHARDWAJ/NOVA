@@ -1,0 +1,29 @@
+# Environment configuration files
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+.venv/
+venv/
+
+# Python cache & compiled bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing cache & artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build & packaging
+dist/
+build/
+*.egg-info/
+
+# OS and editor files
+.DS_Store
+*.swp
+*.swo

@@ -1,0 +1,6 @@
+# Core dependencies
+confluent-kafka>=2.3.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
