@@ -95,6 +95,19 @@ class TestLiveDecisionCoreEngine(unittest.TestCase):
         self.engine.update_online_weights(signals_at_t=(0.8, 0.0, 0.0), abnormal_return=0.03, sigma=0.01)
         self.assertGreater(self.engine.m1, initial_m1)
 
+    def test_dynamic_friction_and_cash_reserve_harmony(self) -> None:
+        from nova.friction.models import FrictionParameters
+        custom_friction = FrictionParameters(flat_brokerage_inr=25.0, flat_dp_charges_inr=18.0)
+        cfg = LiveDecisionConfig(friction_params=custom_friction)
+
+        # Dynamic roundtrip costs: Long = 25*2 + 18 = 68.0; Short = 25*2 = 50.0
+        self.assertAlmostEqual(cfg.long_roundtrip_cost_fixed, 68.0)
+        self.assertAlmostEqual(cfg.short_roundtrip_cost_fixed, 50.0)
+
+        # Harmonized cash cushion
+        self.assertAlmostEqual(cfg.min_cash_reserve_fraction, 0.20)
+        self.assertAlmostEqual(cfg.max_cash_reserve_fraction, 0.30)
+
 
 if __name__ == "__main__":
     unittest.main()

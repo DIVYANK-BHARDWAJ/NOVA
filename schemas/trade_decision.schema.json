@@ -33,7 +33,7 @@
     },
     "selected_action": {
       "type": "string",
-      "enum": ["BUY", "SELL", "HOLD", "REDUCE", "EXIT", "NO_TRADE"],
+      "enum": ["BUY", "SELL", "SHORT", "COVER", "HOLD", "REDUCE", "EXIT", "NO_TRADE"],
       "description": "Action chosen by the decision engine"
     },
     "target_quantity_or_exposure": {

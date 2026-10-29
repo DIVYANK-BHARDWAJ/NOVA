@@ -14,7 +14,13 @@ from datetime import datetime
 import math
 from typing import Mapping, Sequence
 
-from nova.decision.contracts import ActionType, TradeDecision
+from nova.decision.contracts import (
+    ActionType,
+    OrderType,
+    PortfolioState,
+    PositionState,
+    TradeDecision,
+)
 from nova.decision.engine import SentinelDecisionEngine
 from nova.friction.models import MarketFrictionEngine
 from nova.quant.contracts import (
@@ -42,6 +48,9 @@ class ReplayStep:
     step_net_return: float
     portfolio_equity: float
     current_drawdown: float
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    profit_giveback: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +69,13 @@ class ReplaySummary:
     max_drawdown: float
     win_rate: float
     steps: tuple[ReplayStep, ...] = field(default_factory=tuple)
+    total_fees_inr: float = 0.0
+    total_trades: int = 0
+    risk_violations: int = 0
+    net_pnl_inr: float = 0.0
+    final_wealth_inr: float = 0.0
+    total_realized_pnl: float = 0.0
+    partial_exit_count: int = 0
 
     def print_summary(self) -> None:
         """Formatted terminal presentation."""
@@ -69,15 +85,70 @@ class ReplaySummary:
         print(f"Instrument / Ticker:        {self.ticker}")
         print(f"Total Input Bars:           {self.total_input_bars}")
         print(f"Evaluated Decisions:        {self.evaluated_steps}")
+        print(f"Executed Trade Count:       {self.total_trades}")
         print(f"Action Counts:              {dict(self.action_counts)}")
         print(f"Total Portfolio Turnover:   {self.total_turnover:.2f}x")
         print(f"Total Friction Incurred:    {self.total_friction_cost * 100:.3f}%")
+        print(f"Total Trading Fees (INR):   INR {self.total_fees_inr:,.2f}")
+        print(f"Net Realized P&L (INR):     INR {self.net_pnl_inr:+,.2f}")
+        print(f"Total Closed P&L (INR):     INR {self.total_realized_pnl:+,.2f}")
+        print(f"Partial Profit Exits:       {self.partial_exit_count}")
+        print(f"Final Account Wealth (INR): INR {self.final_wealth_inr:,.2f}")
         print(f"Gross Cumulative Return:    {self.gross_cumulative_return * 100:+.2f}%")
         print(f"Net Cumulative Return:      {self.net_cumulative_return * 100:+.2f}%")
         print(f"Benchmark (Buy & Hold):     {self.benchmark_buy_and_hold_return * 100:+.2f}%")
         print(f"Maximum Drawdown:           {self.max_drawdown * 100:.2f}%")
         print(f"Trade Win Rate:             {self.win_rate * 100:.1f}%")
+        print(f"Risk Gate Violations:       {self.risk_violations}")
         print("=" * 78)
+
+    @property
+    def metrics(self) -> PerformanceMetrics:
+        """Lazily computed comprehensive performance metrics suite."""
+        from nova.evaluation.metrics import compute_performance_metrics, PerformanceMetrics
+        init_cap = max(1e-4, self.final_wealth_inr - self.net_pnl_inr)
+        m = compute_performance_metrics(
+            steps=self.steps,
+            initial_capital=init_cap,
+            benchmark_return=self.benchmark_buy_and_hold_return,
+            risk_violations=self.risk_violations,
+        )
+        return PerformanceMetrics(
+            net_cumulative_return=self.net_cumulative_return,
+            gross_cumulative_return=self.gross_cumulative_return,
+            net_pnl_inr=self.net_pnl_inr,
+            total_realized_pnl_inr=self.total_realized_pnl if self.total_realized_pnl != 0.0 else m.total_realized_pnl_inr,
+            final_unrealized_pnl_inr=m.final_unrealized_pnl_inr,
+            final_wealth_inr=self.final_wealth_inr,
+            initial_capital=init_cap,
+            max_drawdown=self.max_drawdown,
+            drawdown_series=m.drawdown_series,
+            risk_violations_count=self.risk_violations,
+            rejected_orders_count=m.rejected_orders_count,
+            total_trades=self.total_trades,
+            winning_trades=m.winning_trades,
+            losing_trades=m.losing_trades,
+            win_rate=self.win_rate,
+            avg_winning_trade_inr=m.avg_winning_trade_inr,
+            avg_losing_trade_inr=m.avg_losing_trade_inr,
+            profit_factor=m.profit_factor,
+            total_turnover=self.total_turnover,
+            total_friction_cost=self.total_friction_cost,
+            total_fees_inr=self.total_fees_inr,
+            partial_exits_count=self.partial_exit_count,
+            avg_holding_duration_bars=m.avg_holding_duration_bars,
+            avg_cash_utilization=m.avg_cash_utilization,
+            avg_exposure=m.avg_exposure,
+            max_margin_usage_inr=m.max_margin_usage_inr,
+            long_trades_count=m.long_trades_count,
+            short_trades_count=m.short_trades_count,
+            long_realized_pnl_inr=m.long_realized_pnl_inr,
+            short_realized_pnl_inr=m.short_realized_pnl_inr,
+            long_win_rate=m.long_win_rate,
+            short_win_rate=m.short_win_rate,
+            benchmark_return=self.benchmark_buy_and_hold_return,
+            excess_return_over_benchmark=m.excess_return_over_benchmark,
+        )
 
 
 class ChronologicalReplayEngine:
@@ -95,7 +166,9 @@ class ChronologicalReplayEngine:
         self,
         bars: Sequence[MarketBar],
         warmup_bars: int = 30,
-        initial_capital: float = 100000.0,
+        initial_capital: float = 1000000.0,
+        execution_timing: str = "NEXT_OPEN",
+        partial_fill_ratio: float = 1.0,
     ) -> ReplaySummary:
         """Execute chronological simulation across all bars."""
         if not bars:
@@ -108,18 +181,36 @@ class ChronologicalReplayEngine:
         validate_market_bar_sequence(bars)
         ticker = bars[0].ticker
 
-        equity = initial_capital
-        peak_equity = initial_capital
+        wealth = initial_capital
+        cash = initial_capital
+        locked_margin = 0.0
+        peak_wealth = initial_capital
         current_exposure = 0.0
+        current_quantity = 0.0
+        entry_price = 0.0
+        holding_days = 0
         max_dd = 0.0
         total_turnover = 0.0
-        total_friction = 0.0
+        total_friction_ratio = 0.0
+        total_fees_inr = 0.0
+        total_trades = 0
+        risk_violations = 0
         winning_steps = 0
         active_steps = 0
+
+        # Position metrics for profit realization and trailing stops
+        highest_price = 0.0
+        lowest_price = 0.0
+        peak_unrealized_pnl = 0.0
+        has_taken_partial_profit = False
+        partial_exit_count = 0
+        total_realized_pnl = 0.0
 
         action_counts: dict[str, int] = {
             ActionType.BUY.value: 0,
             ActionType.SELL.value: 0,
+            ActionType.SHORT.value: 0,
+            ActionType.COVER.value: 0,
             ActionType.HOLD.value: 0,
             ActionType.EXIT.value: 0,
             ActionType.REDUCE.value: 0,
@@ -138,42 +229,132 @@ class ChronologicalReplayEngine:
             next_bar = bars[t + 1]
             future_bar = bars[t + 2] if (t + 2) < len(bars) else None
 
-            current_dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
+            current_dd = (peak_wealth - wealth) / peak_wealth if peak_wealth > 0 else 0.0
+
+            # Calculate current unrealized PnL and giveback before decision
+            if abs(current_exposure) > 1e-4 and entry_price > 0.0:
+                if current_exposure > 0:
+                    highest_price = max(highest_price if highest_price > 0 else current_bar.close, current_bar.close)
+                    current_unrealized = (current_bar.close - entry_price) * current_quantity
+                    peak_unrealized_pnl = max(peak_unrealized_pnl, current_unrealized)
+                    giveback = max(0.0, peak_unrealized_pnl - current_unrealized)
+                else:
+                    lowest_price = min(lowest_price if lowest_price > 0 else current_bar.close, current_bar.close)
+                    current_unrealized = (entry_price - current_bar.close) * abs(current_quantity)
+                    peak_unrealized_pnl = max(peak_unrealized_pnl, current_unrealized)
+                    giveback = max(0.0, peak_unrealized_pnl - current_unrealized)
+            else:
+                current_unrealized = 0.0
+                giveback = 0.0
+
+            pos_state = PositionState(
+                ticker=ticker,
+                quantity=current_quantity,
+                entry_price=entry_price,
+                current_market_price=current_bar.close,
+                holding_days=holding_days,
+                locked_margin=locked_margin,
+                highest_price=highest_price if highest_price > 0 else current_bar.close,
+                lowest_price=lowest_price if lowest_price > 0 else current_bar.close,
+                peak_unrealized_pnl=peak_unrealized_pnl,
+                has_taken_partial_profit=has_taken_partial_profit,
+            )
+            port_state = PortfolioState(
+                available_cash=cash,
+                locked_margin=locked_margin,
+                positions={ticker: pos_state},
+                initial_capital=initial_capital,
+                peak_wealth=peak_wealth,
+            )
 
             # Evaluate decision causally
             decision: TradeDecision = self.decision_engine.evaluate_decision(
                 bars=history_slice,
                 current_position_exposure=current_exposure,
                 current_drawdown=current_dd,
-                available_cash=equity * (1.0 - abs(current_exposure)),
-                current_portfolio_value=equity,
+                available_cash=cash,
+                current_portfolio_value=wealth,
+                position_state=pos_state,
+                portfolio_state=port_state,
             )
 
             act_str = decision.selected_action.value
             action_counts[act_str] = action_counts.get(act_str, 0) + 1
 
-            new_exposure = decision.target_quantity_or_exposure
+            target_exposure = decision.target_quantity_or_exposure
+            # Apply deterministic partial fill ratio
+            if partial_fill_ratio < 1.0 and abs(target_exposure - current_exposure) > 1e-4:
+                new_exposure = current_exposure + (target_exposure - current_exposure) * max(0.0, min(1.0, partial_fill_ratio))
+            else:
+                new_exposure = target_exposure
+
             turnover = abs(new_exposure - current_exposure)
             total_turnover += turnover
 
+            if decision.selected_action in (ActionType.BUY, ActionType.SELL, ActionType.SHORT, ActionType.COVER) and turnover > 1e-4:
+                total_trades += 1
+                trade_notional = turnover * wealth
+                order_fee = self.friction_engine.calculate_order_fee_inr(decision.selected_action, trade_notional)
+                total_fees_inr += order_fee
+
             # Friction incurred on turnover
             step_friction = turnover * self.friction_engine.one_way_friction_fraction
-            total_friction += step_friction
+            total_friction_ratio += step_friction
 
-            # Price movement from next_bar.open to future_bar.open (or next_bar.close if terminal)
-            entry_px = next_bar.open
-            exit_px = future_bar.open if future_bar is not None else next_bar.close
+            # Price movement calculation:
+            # - NEXT_OPEN (standard causal): Entry at t+1 open, exit at t+2 open
+            # - CANDLE_CLOSE (MANTHAN simulator rule): Entry at t close, exit at t+1 close
+            if execution_timing.upper() == "CANDLE_CLOSE":
+                entry_px = current_bar.close
+                exit_px = next_bar.close
+            else:
+                entry_px = next_bar.open
+                exit_px = future_bar.open if future_bar is not None else next_bar.close
             raw_asset_ret = (exit_px - entry_px) / entry_px
+
+            # Calculate realized PnL on position reductions or closures
+            step_realized_pnl = 0.0
+            if turnover > 1e-4 and entry_price > 0.0:
+                if current_exposure > 1e-4 and new_exposure < current_exposure:
+                    reduction_ratio = (current_exposure - max(0.0, new_exposure)) / current_exposure
+                    closed_qty = current_quantity * reduction_ratio
+                    step_realized_pnl = closed_qty * (entry_px - entry_price)
+                    total_realized_pnl += step_realized_pnl
+                    if new_exposure > 1e-4:
+                        partial_exit_count += 1
+                        has_taken_partial_profit = True
+                    else:
+                        highest_price = 0.0
+                        peak_unrealized_pnl = 0.0
+                        has_taken_partial_profit = False
+                elif current_exposure < -1e-4 and new_exposure > current_exposure:
+                    reduction_ratio = (abs(current_exposure) - max(0.0, abs(min(0.0, new_exposure)))) / abs(current_exposure)
+                    closed_qty = abs(current_quantity) * reduction_ratio
+                    step_realized_pnl = closed_qty * (entry_price - entry_px)
+                    total_realized_pnl += step_realized_pnl
+                    if new_exposure < -1e-4:
+                        partial_exit_count += 1
+                        has_taken_partial_profit = True
+                    else:
+                        lowest_price = 0.0
+                        peak_unrealized_pnl = 0.0
+                        has_taken_partial_profit = False
+
+            if abs(current_exposure) <= 1e-4 and abs(new_exposure) > 1e-4:
+                highest_price = entry_px
+                lowest_price = entry_px
+                peak_unrealized_pnl = 0.0
+                has_taken_partial_profit = False
 
             step_gross_ret = new_exposure * raw_asset_ret
             step_net_ret = step_gross_ret - step_friction
 
-            # Update equity
-            equity *= (1.0 + step_net_ret)
-            if equity > peak_equity:
-                peak_equity = equity
+            # Update wealth and cash
+            wealth *= (1.0 + step_net_ret)
+            if wealth > peak_wealth:
+                peak_wealth = wealth
 
-            step_dd = (peak_equity - equity) / peak_equity
+            step_dd = (peak_wealth - wealth) / peak_wealth
             if step_dd > max_dd:
                 max_dd = step_dd
 
@@ -181,6 +362,19 @@ class ChronologicalReplayEngine:
                 active_steps += 1
                 if step_net_ret > 0:
                     winning_steps += 1
+                holding_days += 1
+            else:
+                holding_days = 0
+
+            # Update position tracking
+            if turnover > 1e-4:
+                entry_price = entry_px
+                current_quantity = (new_exposure * wealth) / max(1e-6, entry_px)
+                if new_exposure < 0:
+                    locked_margin = abs(new_exposure) * wealth
+                else:
+                    locked_margin = 0.0
+                cash = max(0.0, wealth - locked_margin - (new_exposure * wealth if new_exposure > 0 else 0.0))
 
             current_exposure = new_exposure
 
@@ -197,16 +391,19 @@ class ChronologicalReplayEngine:
                     step_gross_return=step_gross_ret,
                     step_friction_cost=step_friction,
                     step_net_return=step_net_ret,
-                    portfolio_equity=equity,
+                    portfolio_equity=wealth,
                     current_drawdown=step_dd,
+                    unrealized_pnl=current_unrealized,
+                    realized_pnl=step_realized_pnl,
+                    profit_giveback=giveback,
                 )
             )
 
         # Cumulative metrics
         gross_cum = math.prod(1.0 + s.step_gross_return for s in recorded_steps) - 1.0
-        net_cum = (equity - initial_capital) / initial_capital
+        net_cum = (wealth - initial_capital) / initial_capital
+        net_pnl_inr = wealth - initial_capital
 
-        # Benchmark: buy and hold from first evaluation execution price to last exit price
         first_open = recorded_steps[0].next_open_price or bars[warmup_bars + 1].open
         last_close = bars[-1].close
         benchmark_ret = (last_close - first_open) / first_open
@@ -220,11 +417,18 @@ class ChronologicalReplayEngine:
             evaluated_steps=len(recorded_steps),
             action_counts=action_counts,
             total_turnover=total_turnover,
-            total_friction_cost=total_friction,
+            total_friction_cost=total_friction_ratio,
             gross_cumulative_return=gross_cum,
             net_cumulative_return=net_cum,
             benchmark_buy_and_hold_return=benchmark_ret,
             max_drawdown=max_dd,
             win_rate=win_rate,
             steps=tuple(recorded_steps),
+            total_fees_inr=total_fees_inr,
+            total_trades=total_trades,
+            risk_violations=risk_violations,
+            net_pnl_inr=net_pnl_inr,
+            final_wealth_inr=wealth,
+            total_realized_pnl=total_realized_pnl,
+            partial_exit_count=partial_exit_count,
         )
