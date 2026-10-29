@@ -17,13 +17,19 @@ from nova.research.evaluator import (
     FrictionModel,
     StrategyEvaluator,
 )
+from nova.research.kafka_connector import (
+    ConnectorMetrics,
+    KafkaStrategyConnector,
+)
 
 __all__ = [
     "BarEvaluationStep",
+    "ConnectorMetrics",
     "EMACrossoverConfig",
     "EMACrossoverStrategy",
     "EvaluationReport",
     "FrictionModel",
+    "KafkaStrategyConnector",
     "StrategyEvaluator",
     "generate_synthetic_ohlcv",
     "load_market_bars_from_csv",
