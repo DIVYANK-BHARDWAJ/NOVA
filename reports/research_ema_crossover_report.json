@@ -1,0 +1,32 @@
+{
+  "strategy_id": "ema_crossover",
+  "strategy_version": "1.0.0",
+  "ticker": "SYNTH_TREND",
+  "timing_convention": "SIGNAL_AT_T_CLOSE__EXECUTE_AT_T_PLUS_1_OPEN",
+  "provenance": "SYNTHETIC_OFFLINE_VALIDATION",
+  "is_synthetic_data": true,
+  "evaluation_start_time": "2026-01-01T11:40:00+00:00",
+  "evaluation_end_time": "2026-01-01T19:25:00+00:00",
+  "sample_counts": {
+    "total_bars_input": 120,
+    "warmup_bars": 26,
+    "evaluated_steps": 93
+  },
+  "signals": {
+    "bullish_signals_count": 58,
+    "neutral_signals_count": 37,
+    "crossover_entries_count": 1,
+    "crossover_exits_count": 1
+  },
+  "performance": {
+    "total_turnover": 2.0,
+    "gross_cumulative_return": 0.22872,
+    "benchmark_cumulative_return": -0.036401,
+    "max_drawdown": 0.064286,
+    "friction_status": "UNVERIFIED_PENDING_PLATFORM_CONTRACT",
+    "net_cumulative_return": null
+  },
+  "warnings": [
+    "Real-market performance remains unverified; results based on offline execution."
+  ]
+}

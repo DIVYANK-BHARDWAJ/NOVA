@@ -1,0 +1,119 @@
+# NOVA MAX Quantitative Research & Strategy Engine Configuration
+# Version: 1.0.0
+# STATUS: PROPOSED — VERSION 0 (Pending Cross-Engineer and Platform Review)
+#
+# Rules:
+# 1. No secrets or credentials in this file.
+# 2. No hardcoded ticker symbols or fixed universe assumptions. Dynamic discovery required.
+# 3. Optional research strategies are disabled by default.
+# 4. Exchange fee schedule is explicitly marked UNVERIFIED until official platform contract is supplied.
+
+[metadata]
+config_version = "1.0.0"
+environment = "research"
+description = "Centralized quantitative research parameters for NOVA MAX Phase 1"
+author = "Engineer B"
+
+[temporal]
+# Default timezone for time-series parsing and chronological simulation
+timezone = "UTC"
+# Maximum clock skew allowed between source timestamp and arrival timestamp (seconds)
+max_clock_skew_seconds = 5
+# Strict point-in-time enforcement: reject any bar/event where availability is unconfirmed
+strict_causality_mode = true
+
+[universe]
+# Whether to dynamically discover the tradable universe from platform events
+dynamic_universe_discovery = true
+# Upper safety cap on concurrent active tracked assets
+max_active_universe_size = 500
+# Minimum historical bars required before evaluating any strategy
+min_warmup_bars = 50
+
+[benchmark]
+# Baseline benchmark for zero-alpha comparative testing
+default_benchmark = "NO_TRADE"
+# Risk-free annual rate assumption for excess return calculation (dimensionless decimal, e.g. 0.065 for 6.5%)
+risk_free_rate_annual = 0.065
+
+[execution_friction_provisional]
+# Official exchange fee contract status (Authoritative values owned by Engineer A / Platform)
+fee_schedule_status = "UNVERIFIED_PENDING_PLATFORM_CONTRACT"
+# Conservative provisional slippage assumption per trade (in basis points: 5.0 bps = 0.0005)
+provisional_slippage_bps = 5.0
+# Conservative provisional transaction fee assumption (in basis points: 2.0 bps = 0.0002)
+provisional_brokerage_bps = 2.0
+
+[strategies.momentum]
+enabled = true
+description = "Core Strategy 1: Adaptive Momentum & Trend Acceleration"
+fast_window = 12
+slow_window = 26
+signal_window = 9
+volatility_scaling = true
+
+[strategies.ema_crossover]
+enabled = true
+description = "Core Baseline: Fast/Slow Exponential Moving Average Crossover"
+fast_window = 12
+slow_window = 26
+volatility_scaling = false
+
+[strategies.relative_strength]
+enabled = true
+description = "Core Strategy 2: Cross-Sectional Relative Strength"
+ranking_window_bars = 20
+top_quantile = 0.20
+bottom_quantile = 0.20
+
+[strategies.regime]
+enabled = true
+description = "Core Strategy 3: Market Breadth and Regime Intelligence"
+adx_window = 14
+adx_trending_threshold = 25.0
+volatility_window = 20
+
+# ----------------------------------------------------------------------------
+# Optional / Secondary Strategies (Disabled by default pending empirical validation)
+# ----------------------------------------------------------------------------
+
+[strategies.breakout]
+enabled = false
+description = "Strategy 4: Volatility-Adjusted Breakout"
+channel_bars = 20
+atr_multiplier = 2.0
+
+[strategies.volatility_shock]
+enabled = false
+description = "Strategy 5: Volatility Shock and Recovery"
+shock_z_score = 3.0
+recovery_window = 5
+
+[strategies.news_reaction]
+enabled = false
+description = "Strategy 6: News-Confirmed Price Reaction (Awaiting Engineer A news feed)"
+min_sentiment_confidence = 0.80
+
+[strategies.mean_reversion]
+enabled = false
+description = "Strategy 7: Regime-Conditional Mean Reversion"
+lookback_bars = 20
+reversion_entry_z = 2.0
+
+[strategies.pairs_trading]
+enabled = false
+description = "Strategy 8: Relative-Value / Pairs Trading (Awaiting cointegration audit)"
+min_correlation = 0.85
+
+[strategies.ml_ranking]
+enabled = false
+description = "Strategy 9: Machine-Learning Expected-Return Ranking (Awaiting model validation)"
+model_type = "unassigned"
+
+[strategies.portfolio_capital_allocation]
+enabled = false
+description = "Strategy 10: Portfolio-Aware Capital Allocation Interface"
+
+[strategies.adaptive_selection]
+enabled = false
+description = "Strategy 11: Adaptive Strategy Selection (Requires independent live evidence)"

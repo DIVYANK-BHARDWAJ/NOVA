@@ -4,10 +4,6 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
-venv/
-.venv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -20,6 +16,7 @@ parts/
 sdist/
 var/
 wheels/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -30,6 +27,10 @@ wheels/
 !.env.example
 .venv/
 venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
 # IDE & Editor
 .vscode/
