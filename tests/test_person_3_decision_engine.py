@@ -477,6 +477,266 @@ class TestSentinelDecisionEngine(unittest.TestCase):
         self.assertEqual(decision.selected_action, ActionType.HOLD)
         self.assertTrue(any("INVALID_POSITION_ENTRY_PRICE_ABSTAIN_HOLD" in r for r in decision.selection_or_rejection_reasons))
 
+    # =========================================================================
+    # Part 6: Profit Realization, Position Exits, Execution Safety, & Recycling
+    # =========================================================================
+
+    def test_profit_taking_partial_scale_out_50pct(self) -> None:
+        from nova.decision.contracts import PositionState
+        from nova.portfolio.profit_realization import ProfitRealizationConfig
+        # Steady prices that rise +9% from entry
+        prices = [100.0] * 30 + [102.0, 104.0, 106.0, 108.0, 109.0]
+        bars = create_synthetic_bars(prices)
+
+        pos = PositionState(
+            ticker="SYNTH",
+            quantity=100.0,
+            entry_price=100.0,
+            current_market_price=109.0,  # +9% gain > 8% threshold
+            holding_days=5,
+            highest_price=109.0,
+            has_taken_partial_profit=False,
+        )
+        cfg = DecisionEngineConfig(
+            enable_profit_realization=True,
+            profit_realization_config=ProfitRealizationConfig(take_profit_threshold_pct=0.08, partial_exit_ratio=0.50),
+            target_exposure=0.20,
+        )
+        engine = SentinelDecisionEngine(config=cfg)
+
+        decision = engine.evaluate_decision(
+            bars=bars,
+            current_position_exposure=0.20,
+            position_state=pos,
+        )
+        self.assertEqual(decision.selected_action, ActionType.SELL)
+        # Should reduce exposure by 50%
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.10, places=4)
+        self.assertTrue(any("TAKE_PROFIT_PARTIAL_50PCT_SCALE_OUT" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_trailing_stop_exit_long_and_short(self) -> None:
+        from nova.decision.contracts import PositionState
+        from nova.portfolio.profit_realization import ProfitRealizationConfig
+
+        # 1. Long trailing stop: peak 120.0 (+20% > 4%), current price 115.0 (dropped > 3% from peak: 120 * 0.97 = 116.4)
+        prices_long = [100.0] * 30 + [115.0]
+        bars_long = create_synthetic_bars(prices_long)
+
+        pos_long = PositionState(
+            ticker="SYNTH",
+            quantity=100.0,
+            entry_price=100.0,
+            current_market_price=115.0,
+            highest_price=120.0,
+            holding_days=10,
+            has_taken_partial_profit=True,
+        )
+        cfg = DecisionEngineConfig(
+            enable_profit_realization=True,
+            profit_realization_config=ProfitRealizationConfig(trailing_stop_activation_pct=0.04, trailing_stop_distance_pct=0.03),
+        )
+        engine = SentinelDecisionEngine(config=cfg)
+
+        decision_long = engine.evaluate_decision(
+            bars=bars_long,
+            current_position_exposure=0.20,
+            position_state=pos_long,
+        )
+        self.assertEqual(decision_long.selected_action, ActionType.SELL)
+        self.assertAlmostEqual(decision_long.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("TRAILING_STOP_LONG_TRIGGERED" in r for r in decision_long.selection_or_rejection_reasons))
+
+        # 2. Short trailing stop: trough 80.0 (-20% price > 4%), current price 84.0 (rebounded > 3%: 80 * 1.03 = 82.4)
+        prices_short = [100.0] * 30 + [84.0]
+        bars_short = create_synthetic_bars(prices_short)
+
+        pos_short = PositionState(
+            ticker="SYNTH",
+            quantity=-100.0,
+            entry_price=100.0,
+            current_market_price=84.0,
+            lowest_price=80.0,
+            holding_days=4,
+            locked_margin=20000.0,
+        )
+        cfg_short = DecisionEngineConfig(
+            allow_short=True,
+            enable_profit_realization=True,
+            profit_realization_config=ProfitRealizationConfig(trailing_stop_activation_pct=0.04, trailing_stop_distance_pct=0.03),
+        )
+        risk_short = DeterministicRiskGate(RiskConfiguration(allow_short=True))
+        engine_short = SentinelDecisionEngine(config=cfg_short, risk_gate=risk_short)
+
+        decision_short = engine_short.evaluate_decision(
+            bars=bars_short,
+            current_position_exposure=-0.20,
+            position_state=pos_short,
+        )
+        self.assertEqual(decision_short.selected_action, ActionType.COVER)
+        self.assertAlmostEqual(decision_short.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("TRAILING_STOP_SHORT_TRIGGERED" in r for r in decision_short.selection_or_rejection_reasons))
+
+    def test_profit_giveback_protection_exit(self) -> None:
+        from nova.decision.contracts import PositionState
+        from nova.portfolio.profit_realization import ProfitRealizationConfig
+        prices = [100.0] * 30 + [110.0]
+        bars = create_synthetic_bars(prices)
+
+        # Peak unrealized PnL was 20,000, current price 110 with 100 shares gives PnL 1,000.
+        # Giveback = (20,000 - 1,000) / 20,000 = 95% > 40% maximum giveback
+        pos = PositionState(
+            ticker="SYNTH",
+            quantity=100.0,
+            entry_price=100.0,
+            current_market_price=110.0,
+            highest_price=130.0,
+            peak_unrealized_pnl=20000.0,
+            holding_days=15,
+        )
+        cfg = DecisionEngineConfig(
+            enable_profit_realization=True,
+            profit_realization_config=ProfitRealizationConfig(
+                profit_giveback_max_pct=0.40,
+                trailing_stop_activation_pct=0.50,  # Keep trailing stop dormant so giveback triggers
+            ),
+        )
+        engine = SentinelDecisionEngine(config=cfg)
+
+        decision = engine.evaluate_decision(
+            bars=bars,
+            current_position_exposure=0.20,
+            position_state=pos,
+        )
+        self.assertEqual(decision.selected_action, ActionType.SELL)
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("PROFIT_GIVEBACK_PROTECTION_EXIT" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_tax_deferral_window_holding(self) -> None:
+        from nova.decision.contracts import PositionState
+        from nova.portfolio.profit_realization import ProfitRealizationConfig
+        # Flat prices (neutral signal decay)
+        prices = [100.0] * 35
+        bars = create_synthetic_bars(prices)
+
+        # Holding days = 345 (within [340, 365] window)
+        pos = PositionState(
+            ticker="SYNTH",
+            quantity=100.0,
+            entry_price=90.0,
+            current_market_price=100.0,
+            holding_days=345,
+            highest_price=101.0,
+        )
+        cfg = DecisionEngineConfig(
+            enable_profit_realization=True,
+            profit_realization_config=ProfitRealizationConfig(
+                tax_deferral_buffer_days=25,
+                take_profit_threshold_pct=0.20,
+            ),
+        )
+        engine = SentinelDecisionEngine(config=cfg)
+
+        decision = engine.evaluate_decision(
+            bars=bars,
+            current_position_exposure=0.20,
+            position_state=pos,
+        )
+        self.assertEqual(decision.selected_action, ActionType.HOLD)
+        self.assertTrue(any("TAX_AWARE_HOLDING_DEFERRAL_LTCG" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_execution_safety_duplicate_exit_and_oversell_veto(self) -> None:
+        from nova.decision.contracts import PortfolioState, PositionState
+        from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
+        risk_gate = DeterministicRiskGate(RiskConfiguration(allow_short=False))
+
+        # 1. Duplicate exit order veto
+        res_dup = risk_gate.evaluate(
+            proposed_action=ActionType.SELL,
+            proposed_exposure=0.0,
+            current_position_exposure=0.20,
+            has_pending_exit_order=True,
+        )
+        self.assertFalse(res_dup.is_approved)
+        self.assertIn("EXECUTION_SAFETY_DUPLICATE_EXIT_PENDING_REJECT", res_dup.risk_reason_codes)
+
+        # 2. Oversell: cannot sell without long position
+        res_no_pos = risk_gate.evaluate(
+            proposed_action=ActionType.SELL,
+            proposed_exposure=0.0,
+            current_position_exposure=0.0,
+        )
+        self.assertFalse(res_no_pos.is_approved)
+        self.assertIn("EXECUTION_SAFETY_CANNOT_SELL_WITHOUT_LONG_POSITION_REJECT", res_no_pos.risk_reason_codes)
+
+        # 3. Oversell: all shares already pending exit
+        res_all_pending = risk_gate.evaluate(
+            proposed_action=ActionType.SELL,
+            proposed_exposure=0.0,
+            current_position_exposure=0.20,
+            pending_exit_quantity=100.0,
+            current_market_price=100.0,
+        )
+        # Note: quantity = 0.20 * 1,000,000 / 100 = 2,000 shares. If pending is 2000:
+        res_all_pending2 = risk_gate.evaluate(
+            proposed_action=ActionType.SELL,
+            proposed_exposure=0.0,
+            current_position_exposure=0.20,
+            pending_exit_quantity=2000.0,
+            current_market_price=100.0,
+        )
+        self.assertFalse(res_all_pending2.is_approved)
+        self.assertIn("EXECUTION_SAFETY_ALL_LONG_SHARES_PENDING_EXIT_REJECT", res_all_pending2.risk_reason_codes)
+
+        # 4. Nonexistent cover: cannot cover without short position
+        res_no_short = risk_gate.evaluate(
+            proposed_action=ActionType.COVER,
+            proposed_exposure=0.0,
+            current_position_exposure=0.0,
+        )
+        self.assertFalse(res_no_short.is_approved)
+        self.assertIn("EXECUTION_SAFETY_CANNOT_COVER_WITHOUT_SHORT_POSITION_REJECT", res_no_short.risk_reason_codes)
+
+        # 5. Conflicting pending order reject
+        res_conf = risk_gate.evaluate(
+            proposed_action=ActionType.SELL,
+            proposed_exposure=0.0,
+            current_position_exposure=0.20,
+            has_pending_entry_order=True,
+        )
+        self.assertFalse(res_conf.is_approved)
+        self.assertIn("EXECUTION_SAFETY_CONFLICTING_ORDER_PENDING_REJECT", res_conf.risk_reason_codes)
+
+    def test_capital_recycler_ranking_and_cushion_preservation(self) -> None:
+        from nova.portfolio.profit_realization import CandidateOpportunity, CapitalRecycler, ProfitRealizationConfig
+        recycler = CapitalRecycler(ProfitRealizationConfig(min_cash_reserve_fraction=0.20))
+
+        candidates = [
+            CandidateOpportunity(ticker="LOW_EDGE", expected_net_edge=0.001, return_volatility=0.02),     # 0.05 ratio < 0.15 threshold
+            CandidateOpportunity(ticker="STAR_ALPHA", expected_net_edge=0.010, return_volatility=0.02),   # 0.50 ratio
+            CandidateOpportunity(ticker="GOOD_RUNNER", expected_net_edge=0.006, return_volatility=0.02),  # 0.30 ratio
+            CandidateOpportunity(ticker="SOLID_VALUE", expected_net_edge=0.004, return_volatility=0.02),  # 0.20 ratio
+        ]
+
+        # ₹10,00,000 total wealth, ₹5,00,000 available cash freed from exits
+        plan = recycler.evaluate_reinvestment_plan(
+            available_cash=500000.0,
+            total_wealth=1000000.0,
+            candidate_opportunities=candidates,
+            current_holdings_count=1,
+        )
+
+        # Candidate LOW_EDGE is rejected (ratio 0.05 < 0.15)
+        allocated_tickers = [alloc.ticker for alloc in plan.allocations]
+        self.assertNotIn("LOW_EDGE", allocated_tickers)
+        # STAR_ALPHA must be ranked first (highest ratio)
+        self.assertEqual(allocated_tickers[0], "STAR_ALPHA")
+        self.assertEqual(allocated_tickers[1], "GOOD_RUNNER")
+        self.assertEqual(allocated_tickers[2], "SOLID_VALUE")
+
+        # Cash cushion of 20% (₹2,00,000) must be preserved
+        self.assertGreaterEqual(plan.preserved_cash_cushion, 200000.0)
+        self.assertLessEqual(plan.total_allocated_capital, 500000.0 - 200000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

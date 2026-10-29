@@ -2,7 +2,10 @@
 
 from nova.decision.contracts import (
     ActionType,
+    ExecutionResult,
+    OrderStatus,
     OrderType,
+    PendingOrder,
     PortfolioState,
     PositionState,
     TradeDecision,
@@ -24,7 +27,10 @@ from nova.decision.regime import (
 
 __all__ = [
     "ActionType",
+    "ExecutionResult",
+    "OrderStatus",
     "OrderType",
+    "PendingOrder",
     "PositionState",
     "PortfolioState",
     "TradeDecision",

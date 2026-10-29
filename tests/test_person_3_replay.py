@@ -99,6 +99,37 @@ class TestChronologicalReplayEngine(unittest.TestCase):
         for step in summary.steps:
             self.assertAlmostEqual(step.next_open_price, step.close_price, places=2)
 
+    def test_replay_profit_realization_active_exits(self) -> None:
+        from nova.decision.engine import DecisionEngineConfig
+        # In a cyclical market, position enters, reaches peak, and reverses
+        bars = generate_market_scenario(pattern="cyclical", n_bars=50)
+        cfg = DecisionEngineConfig(
+            enable_profit_realization=True,
+            target_exposure=0.20,
+        )
+        engine = SentinelDecisionEngine(config=cfg, friction_engine=self.friction)
+        replay = ChronologicalReplayEngine(decision_engine=engine, friction_engine=self.friction)
+        summary = replay.run(bars, warmup_bars=15)
+
+        self.assertIsInstance(summary, ReplaySummary)
+        self.assertGreater(summary.evaluated_steps, 0)
+        # Verify step-level unrealized pnl tracking
+        has_unrealized_tracked = any(abs(s.unrealized_pnl) > 0.0 for s in summary.steps)
+        self.assertTrue(has_unrealized_tracked)
+        # Total wealth and net pnl should be mathematically consistent
+        self.assertAlmostEqual(summary.final_wealth_inr - 1000000.0, summary.net_pnl_inr, places=2)
+
+    def test_replay_partial_fill_ratio_execution(self) -> None:
+        bars = generate_market_scenario(pattern="bullish", n_bars=40)
+        # Compare 100% fill vs 50% fill on initial entry
+        sum_full = self.replay.run(bars, warmup_bars=15, partial_fill_ratio=1.0)
+        sum_half = self.replay.run(bars, warmup_bars=15, partial_fill_ratio=0.5)
+
+        # On the first entry step, 50% partial fill must produce exactly half the exposure/turnover
+        first_step_full = next(s for s in sum_full.steps if s.turnover > 1e-4)
+        first_step_half = next(s for s in sum_half.steps if s.turnover > 1e-4)
+        self.assertAlmostEqual(first_step_half.turnover, first_step_full.turnover * 0.5, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

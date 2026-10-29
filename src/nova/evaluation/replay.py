@@ -48,6 +48,9 @@ class ReplayStep:
     step_net_return: float
     portfolio_equity: float
     current_drawdown: float
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    profit_giveback: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +74,8 @@ class ReplaySummary:
     risk_violations: int = 0
     net_pnl_inr: float = 0.0
     final_wealth_inr: float = 0.0
+    total_realized_pnl: float = 0.0
+    partial_exit_count: int = 0
 
     def print_summary(self) -> None:
         """Formatted terminal presentation."""
@@ -86,6 +91,8 @@ class ReplaySummary:
         print(f"Total Friction Incurred:    {self.total_friction_cost * 100:.3f}%")
         print(f"Total Trading Fees (INR):   INR {self.total_fees_inr:,.2f}")
         print(f"Net Realized P&L (INR):     INR {self.net_pnl_inr:+,.2f}")
+        print(f"Total Closed P&L (INR):     INR {self.total_realized_pnl:+,.2f}")
+        print(f"Partial Profit Exits:       {self.partial_exit_count}")
         print(f"Final Account Wealth (INR): INR {self.final_wealth_inr:,.2f}")
         print(f"Gross Cumulative Return:    {self.gross_cumulative_return * 100:+.2f}%")
         print(f"Net Cumulative Return:      {self.net_cumulative_return * 100:+.2f}%")
@@ -113,6 +120,7 @@ class ChronologicalReplayEngine:
         warmup_bars: int = 30,
         initial_capital: float = 1000000.0,
         execution_timing: str = "NEXT_OPEN",
+        partial_fill_ratio: float = 1.0,
     ) -> ReplaySummary:
         """Execute chronological simulation across all bars."""
         if not bars:
@@ -142,6 +150,14 @@ class ChronologicalReplayEngine:
         winning_steps = 0
         active_steps = 0
 
+        # Position metrics for profit realization and trailing stops
+        highest_price = 0.0
+        lowest_price = 0.0
+        peak_unrealized_pnl = 0.0
+        has_taken_partial_profit = False
+        partial_exit_count = 0
+        total_realized_pnl = 0.0
+
         action_counts: dict[str, int] = {
             ActionType.BUY.value: 0,
             ActionType.SELL.value: 0,
@@ -167,6 +183,22 @@ class ChronologicalReplayEngine:
 
             current_dd = (peak_wealth - wealth) / peak_wealth if peak_wealth > 0 else 0.0
 
+            # Calculate current unrealized PnL and giveback before decision
+            if abs(current_exposure) > 1e-4 and entry_price > 0.0:
+                if current_exposure > 0:
+                    highest_price = max(highest_price if highest_price > 0 else current_bar.close, current_bar.close)
+                    current_unrealized = (current_bar.close - entry_price) * current_quantity
+                    peak_unrealized_pnl = max(peak_unrealized_pnl, current_unrealized)
+                    giveback = max(0.0, peak_unrealized_pnl - current_unrealized)
+                else:
+                    lowest_price = min(lowest_price if lowest_price > 0 else current_bar.close, current_bar.close)
+                    current_unrealized = (entry_price - current_bar.close) * abs(current_quantity)
+                    peak_unrealized_pnl = max(peak_unrealized_pnl, current_unrealized)
+                    giveback = max(0.0, peak_unrealized_pnl - current_unrealized)
+            else:
+                current_unrealized = 0.0
+                giveback = 0.0
+
             pos_state = PositionState(
                 ticker=ticker,
                 quantity=current_quantity,
@@ -174,6 +206,10 @@ class ChronologicalReplayEngine:
                 current_market_price=current_bar.close,
                 holding_days=holding_days,
                 locked_margin=locked_margin,
+                highest_price=highest_price if highest_price > 0 else current_bar.close,
+                lowest_price=lowest_price if lowest_price > 0 else current_bar.close,
+                peak_unrealized_pnl=peak_unrealized_pnl,
+                has_taken_partial_profit=has_taken_partial_profit,
             )
             port_state = PortfolioState(
                 available_cash=cash,
@@ -197,7 +233,13 @@ class ChronologicalReplayEngine:
             act_str = decision.selected_action.value
             action_counts[act_str] = action_counts.get(act_str, 0) + 1
 
-            new_exposure = decision.target_quantity_or_exposure
+            target_exposure = decision.target_quantity_or_exposure
+            # Apply deterministic partial fill ratio
+            if partial_fill_ratio < 1.0 and abs(target_exposure - current_exposure) > 1e-4:
+                new_exposure = current_exposure + (target_exposure - current_exposure) * max(0.0, min(1.0, partial_fill_ratio))
+            else:
+                new_exposure = target_exposure
+
             turnover = abs(new_exposure - current_exposure)
             total_turnover += turnover
 
@@ -221,6 +263,40 @@ class ChronologicalReplayEngine:
                 entry_px = next_bar.open
                 exit_px = future_bar.open if future_bar is not None else next_bar.close
             raw_asset_ret = (exit_px - entry_px) / entry_px
+
+            # Calculate realized PnL on position reductions or closures
+            step_realized_pnl = 0.0
+            if turnover > 1e-4 and entry_price > 0.0:
+                if current_exposure > 1e-4 and new_exposure < current_exposure:
+                    reduction_ratio = (current_exposure - max(0.0, new_exposure)) / current_exposure
+                    closed_qty = current_quantity * reduction_ratio
+                    step_realized_pnl = closed_qty * (entry_px - entry_price)
+                    total_realized_pnl += step_realized_pnl
+                    if new_exposure > 1e-4:
+                        partial_exit_count += 1
+                        has_taken_partial_profit = True
+                    else:
+                        highest_price = 0.0
+                        peak_unrealized_pnl = 0.0
+                        has_taken_partial_profit = False
+                elif current_exposure < -1e-4 and new_exposure > current_exposure:
+                    reduction_ratio = (abs(current_exposure) - max(0.0, abs(min(0.0, new_exposure)))) / abs(current_exposure)
+                    closed_qty = abs(current_quantity) * reduction_ratio
+                    step_realized_pnl = closed_qty * (entry_price - entry_px)
+                    total_realized_pnl += step_realized_pnl
+                    if new_exposure < -1e-4:
+                        partial_exit_count += 1
+                        has_taken_partial_profit = True
+                    else:
+                        lowest_price = 0.0
+                        peak_unrealized_pnl = 0.0
+                        has_taken_partial_profit = False
+
+            if abs(current_exposure) <= 1e-4 and abs(new_exposure) > 1e-4:
+                highest_price = entry_px
+                lowest_price = entry_px
+                peak_unrealized_pnl = 0.0
+                has_taken_partial_profit = False
 
             step_gross_ret = new_exposure * raw_asset_ret
             step_net_ret = step_gross_ret - step_friction
@@ -269,6 +345,9 @@ class ChronologicalReplayEngine:
                     step_net_return=step_net_ret,
                     portfolio_equity=wealth,
                     current_drawdown=step_dd,
+                    unrealized_pnl=current_unrealized,
+                    realized_pnl=step_realized_pnl,
+                    profit_giveback=giveback,
                 )
             )
 
@@ -302,4 +381,6 @@ class ChronologicalReplayEngine:
             risk_violations=risk_violations,
             net_pnl_inr=net_pnl_inr,
             final_wealth_inr=wealth,
+            total_realized_pnl=total_realized_pnl,
+            partial_exit_count=partial_exit_count,
         )

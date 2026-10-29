@@ -87,8 +87,8 @@ class DeterministicRiskGate:
         self,
         proposed_action: ActionType,
         proposed_exposure: float,
-        data_quality: DataQualityStatus,
-        bar_timestamp: datetime,
+        data_quality: DataQualityStatus = DataQualityStatus.VALID,
+        bar_timestamp: datetime | None = None,
         as_of_time: datetime | None = None,
         current_drawdown: float = 0.0,
         available_cash: float = 1.0,
@@ -98,16 +98,107 @@ class DeterministicRiskGate:
         current_market_price: float = 0.0,
         short_holding_days: int = 0,
         locked_margin: float = 0.0,
+        has_pending_exit_order: bool = False,
+        has_pending_entry_order: bool = False,
+        pending_exit_quantity: float = 0.0,
+        current_position_exposure: float | None = None,
     ) -> RiskGateResult:
         """Deterministic veto / clamp logic.
 
         Returns approved action and exposure with explicit audit reasons.
         """
+        if bar_timestamp is None:
+            bar_timestamp = datetime.now(timezone.utc)
+
+        if current_position_exposure is not None and abs(current_position_quantity) <= 1e-6:
+            px = current_market_price if current_market_price > 0 else 1.0
+            current_position_quantity = (current_position_exposure * current_portfolio_value) / px
+
         validate_finite(proposed_exposure, "proposed_exposure")
         validate_finite(current_drawdown, "current_drawdown")
         validate_timezone_aware(bar_timestamp, "bar_timestamp")
 
         reasons: list[str] = []
+
+        # 0. Short Prohibition Check (prioritized for negative exposure or SHORT action)
+        is_short_action = (proposed_action == ActionType.SHORT or proposed_exposure < -1e-6)
+        if is_short_action and not self.config.allow_short:
+            reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.NO_TRADE,
+                authorized_exposure=0.0,
+                risk_reason_codes=tuple(reasons),
+            )
+
+        # 0b. Execution Safety Checks: Pending Orders, Overselling & Nonexistent Covers
+        is_exit_action = proposed_action in (ActionType.SELL, ActionType.COVER, ActionType.EXIT, ActionType.REDUCE)
+        if has_pending_exit_order and is_exit_action:
+            reasons.append("EXECUTION_SAFETY_DUPLICATE_EXIT_PENDING_REJECT")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.HOLD,
+                authorized_exposure=proposed_exposure,
+                risk_reason_codes=tuple(reasons),
+            )
+
+        if has_pending_entry_order and (is_exit_action or proposed_action in (ActionType.BUY, ActionType.SHORT)):
+            reasons.append("EXECUTION_SAFETY_CONFLICTING_ORDER_PENDING_REJECT")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.HOLD,
+                authorized_exposure=proposed_exposure,
+                risk_reason_codes=tuple(reasons),
+            )
+
+        if has_pending_exit_order and proposed_action in (ActionType.BUY, ActionType.SHORT):
+            reasons.append("EXECUTION_SAFETY_CONFLICTING_ORDER_PENDING_REJECT")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.NO_TRADE,
+                authorized_exposure=0.0,
+                risk_reason_codes=tuple(reasons),
+            )
+
+        if proposed_action == ActionType.SELL and proposed_exposure >= 0.0:
+            if current_position_quantity <= 1e-6:
+                reasons.append("EXECUTION_SAFETY_CANNOT_SELL_WITHOUT_LONG_POSITION_REJECT")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+            if pending_exit_quantity > 0:
+                available_to_sell = current_position_quantity - pending_exit_quantity
+                if available_to_sell <= 1e-6:
+                    reasons.append("EXECUTION_SAFETY_ALL_LONG_SHARES_PENDING_EXIT_REJECT")
+                    return RiskGateResult(
+                        is_approved=False,
+                        authorized_action=ActionType.HOLD,
+                        authorized_exposure=proposed_exposure,
+                        risk_reason_codes=tuple(reasons),
+                    )
+
+        if proposed_action == ActionType.COVER:
+            if current_position_quantity >= -1e-6:
+                reasons.append("EXECUTION_SAFETY_CANNOT_COVER_WITHOUT_SHORT_POSITION_REJECT")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+            if pending_exit_quantity > 0:
+                available_to_cover = abs(current_position_quantity) - pending_exit_quantity
+                if available_to_cover <= 1e-6:
+                    reasons.append("EXECUTION_SAFETY_ALL_SHORT_SHARES_PENDING_COVER_REJECT")
+                    return RiskGateResult(
+                        is_approved=False,
+                        authorized_action=ActionType.HOLD,
+                        authorized_exposure=proposed_exposure,
+                        risk_reason_codes=tuple(reasons),
+                    )
 
         # 1. Circuit Breaker / Drawdown Limit Check
         if current_drawdown >= self.config.max_drawdown_limit:
