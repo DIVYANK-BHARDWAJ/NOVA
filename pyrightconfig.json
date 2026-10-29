@@ -2,9 +2,11 @@
   "include": [
     "src",
     "tests",
-    "scripts"
+    "scripts",
+    "kafka/src"
   ],
   "extraPaths": [
-    "src"
+    "src",
+    "kafka/src"
   ]
 }

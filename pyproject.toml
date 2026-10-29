@@ -9,12 +9,12 @@ description = "NOVA Autonomous Trading System — Quantitative Research, Ingesti
 requires-python = ">=3.11"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "kafka/src"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts"]
-extraPaths = ["src"]
+include = ["src", "tests", "scripts", "kafka/src"]
+extraPaths = ["src", "kafka/src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = ["tests", "kafka/tests"]
+pythonpath = ["src", "kafka/src"]

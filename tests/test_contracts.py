@@ -266,7 +266,10 @@ class TestCandidateSignalContracts(unittest.TestCase):
             reason_codes=("TREND_ACCELERATION_CONFIRMED", "LOW_VOLATILITY_EXPANSION"),
         )
         self.assertEqual(sig.direction, SignalDirection.BULLISH)
-        self.assertAlmostEqual(sig.compute_expected_net_edge(), 0.0100)
+        net_edge = sig.compute_expected_net_edge()
+        self.assertIsNotNone(net_edge)
+        assert net_edge is not None
+        self.assertAlmostEqual(net_edge, 0.0100)
 
     def test_candidate_signal_cannot_execute_orders(self) -> None:
         """Strict Ownership Guard: CandidateSignal has NO execution capabilities."""
