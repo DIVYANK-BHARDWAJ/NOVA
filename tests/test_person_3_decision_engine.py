@@ -453,6 +453,30 @@ class TestSentinelDecisionEngine(unittest.TestCase):
         # Drawdown: (1,000,000 - 460,000) / 1,000,000 = 54%
         self.assertAlmostEqual(port.current_drawdown, 0.54, places=4)
 
+    def test_unconfirmed_portfolio_state_triggers_safe_abstain_hold(self) -> None:
+        prices = [100.0 + (i * 1.0) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+        engine = SentinelDecisionEngine()
+
+        # Caller asserts active position exposure 0.20, but neither position_state nor portfolio_state is provided
+        # System must fail safely to HOLD without inventing entry price or holding days
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.20)
+        self.assertEqual(decision.selected_action, ActionType.HOLD)
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.20)
+        self.assertTrue(any("PORTFOLIO_STATE_UNCONFIRMED_ABSTAIN_HOLD" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_invalid_entry_price_abstained(self) -> None:
+        from nova.decision.contracts import PositionState
+        prices = [100.0 + (i * 1.0) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+        engine = SentinelDecisionEngine()
+
+        # Quantity > 0 with entry_price <= 0.0 is corrupted/invalid data
+        corrupted_pos = PositionState(ticker="SYNTH", quantity=50.0, entry_price=0.0, current_market_price=120.0)
+        decision = engine.evaluate_decision(bars, position_state=corrupted_pos)
+        self.assertEqual(decision.selected_action, ActionType.HOLD)
+        self.assertTrue(any("INVALID_POSITION_ENTRY_PRICE_ABSTAIN_HOLD" in r for r in decision.selection_or_rejection_reasons))
+
 
 if __name__ == "__main__":
     unittest.main()

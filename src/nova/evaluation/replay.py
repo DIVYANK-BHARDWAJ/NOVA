@@ -112,6 +112,7 @@ class ChronologicalReplayEngine:
         bars: Sequence[MarketBar],
         warmup_bars: int = 30,
         initial_capital: float = 1000000.0,
+        execution_timing: str = "NEXT_OPEN",
     ) -> ReplaySummary:
         """Execute chronological simulation across all bars."""
         if not bars:
@@ -210,9 +211,15 @@ class ChronologicalReplayEngine:
             step_friction = turnover * self.friction_engine.one_way_friction_fraction
             total_friction_ratio += step_friction
 
-            # Price movement from next_bar.open to future_bar.open (or next_bar.close if terminal)
-            entry_px = next_bar.open
-            exit_px = future_bar.open if future_bar is not None else next_bar.close
+            # Price movement calculation:
+            # - NEXT_OPEN (standard causal): Entry at t+1 open, exit at t+2 open
+            # - CANDLE_CLOSE (MANTHAN simulator rule): Entry at t close, exit at t+1 close
+            if execution_timing.upper() == "CANDLE_CLOSE":
+                entry_px = current_bar.close
+                exit_px = next_bar.close
+            else:
+                entry_px = next_bar.open
+                exit_px = future_bar.open if future_bar is not None else next_bar.close
             raw_asset_ret = (exit_px - entry_px) / entry_px
 
             step_gross_ret = new_exposure * raw_asset_ret

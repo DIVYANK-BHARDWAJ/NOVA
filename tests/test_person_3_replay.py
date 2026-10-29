@@ -90,6 +90,15 @@ class TestChronologicalReplayEngine(unittest.TestCase):
             calc_net = step.step_gross_return - step.step_friction_cost
             self.assertAlmostEqual(step.step_net_return, calc_net, places=6)
 
+    def test_replay_candle_close_execution_timing(self) -> None:
+        bars = generate_market_scenario(pattern="bullish", n_bars=40)
+        summary = self.replay.run(bars, warmup_bars=15, execution_timing="CANDLE_CLOSE")
+        self.assertIsInstance(summary, ReplaySummary)
+        self.assertGreater(summary.evaluated_steps, 0)
+        # Entry price on candle close mode must match the current bar close price
+        for step in summary.steps:
+            self.assertAlmostEqual(step.next_open_price, step.close_price, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

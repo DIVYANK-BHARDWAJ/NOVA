@@ -70,6 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--slippage-bps", type=float, default=3.0, help="Execution slippage in bps")
     parser.add_argument("--brokerage-bps", type=float, default=1.0, help="Brokerage commission in bps")
     parser.add_argument("--capital", type=float, default=1000000.0, help="Initial portfolio capital in INR (default ₹10,00,000)")
+    parser.add_argument("--timing", choices=["NEXT_OPEN", "CANDLE_CLOSE"], default="NEXT_OPEN", help="Execution fill timing (NEXT_OPEN causal vs CANDLE_CLOSE simulator)")
     parser.add_argument("--output-json", type=str, default=None, help="Optional output JSON path for results")
     return parser.parse_args()
 
@@ -131,18 +132,18 @@ def main() -> int:
     # 5. Execute Replay
     if args.engine == "baseline":
         replay_engine = ChronologicalReplayEngine(decision_engine=baseline_engine, friction_engine=friction_engine)
-        summary = replay_engine.run(bars, warmup_bars=args.warmup, initial_capital=args.capital)
+        summary = replay_engine.run(bars, warmup_bars=args.warmup, initial_capital=args.capital, execution_timing=args.timing)
         summary.print_summary()
     elif args.engine == "live":
         replay_engine = ChronologicalReplayEngine(decision_engine=live_engine, friction_engine=friction_engine)
-        summary = replay_engine.run(bars, warmup_bars=args.warmup, initial_capital=args.capital)
+        summary = replay_engine.run(bars, warmup_bars=args.warmup, initial_capital=args.capital, execution_timing=args.timing)
         summary.print_summary()
     else:  # compare
         rep_base = ChronologicalReplayEngine(decision_engine=baseline_engine, friction_engine=friction_engine)
-        sum_base = rep_base.run(bars, warmup_bars=args.warmup, initial_capital=args.capital)
+        sum_base = rep_base.run(bars, warmup_bars=args.warmup, initial_capital=args.capital, execution_timing=args.timing)
 
         rep_live = ChronologicalReplayEngine(decision_engine=live_engine, friction_engine=friction_engine)
-        sum_live = rep_live.run(bars, warmup_bars=args.warmup, initial_capital=args.capital)
+        sum_live = rep_live.run(bars, warmup_bars=args.warmup, initial_capital=args.capital, execution_timing=args.timing)
 
         print("=" * 86)
         print("SENTINEL TRADER -- HEAD-TO-HEAD REPLAY EVALUATION (BASELINE vs 14-STEP LIVE ENGINE)")

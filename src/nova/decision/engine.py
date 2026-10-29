@@ -148,10 +148,28 @@ class SentinelDecisionEngine:
             if abs(current_position_exposure) <= 1e-4 and current_portfolio_value > 0.0:
                 current_position_exposure = position_state.market_value / current_portfolio_value
         else:
-            current_quantity = (current_position_exposure * current_portfolio_value) / max(1e-6, latest_bar.close)
-            entry_price = latest_bar.close
+            if abs(current_position_exposure) > 1e-4:
+                # Active position claimed but no authoritative position/portfolio state provided
+                # Fail safely: do NOT invent entry_price = latest_bar.close or guess holding_days = 0
+                return self._build_abstain_decision(
+                    ticker=ticker,
+                    timestamp=as_of,
+                    reasons=["PORTFOLIO_STATE_UNCONFIRMED_ABSTAIN_HOLD"],
+                    current_position=current_position_exposure,
+                )
+            current_quantity = 0.0
+            entry_price = 0.0
             holding_days = 0
             locked_margin = 0.0
+
+        if abs(current_quantity) > 1e-6 and entry_price <= 0.0:
+            # Active shares reported with zero or negative entry price is invalid state
+            return self._build_abstain_decision(
+                ticker=ticker,
+                timestamp=as_of,
+                reasons=["INVALID_POSITION_ENTRY_PRICE_ABSTAIN_HOLD"],
+                current_position=current_position_exposure,
+            )
 
         reasons: list[str] = []
 

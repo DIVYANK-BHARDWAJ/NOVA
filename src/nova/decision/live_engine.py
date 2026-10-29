@@ -30,6 +30,7 @@ from typing import Mapping, Sequence
 from nova.decision.contracts import ActionType, OrderType, TradeDecision
 from nova.decision.prediction import BasePredictor, CausalRidgePredictor, PredictionResult
 from nova.decision.regime import MarketRegimeDetector, MarketRegimeType, RegimeConfig, RegimeOutput
+from nova.friction.models import FrictionParameters
 from nova.quant.contracts import (
     ContractValidationError,
     DataQualityStatus,
@@ -75,8 +76,9 @@ class LiveDecisionConfig:
 
     # 8. Edge Gate
     score_to_mu_scale: float = 1.0       # g(Score) multiplier
-    long_roundtrip_cost_fixed: float = 55.34  # 20 + 20 + 15.34
-    short_roundtrip_cost_fixed: float = 40.0
+    friction_params: FrictionParameters = field(default_factory=FrictionParameters)
+    long_roundtrip_cost_fixed: float = 0.0   # Derived dynamically from friction_params if 0.0
+    short_roundtrip_cost_fixed: float = 0.0  # Derived dynamically from friction_params if 0.0
     tax_drag_rate: float = 0.15          # 15% capital gains tax drag
     kappa_uncertainty: float = 0.25      # Uncertainty penalty multiplier
     theta_edge_ratio: float = 0.15       # Minimum Edge / sigma threshold
@@ -122,8 +124,8 @@ class LiveDecisionConfig:
     drawdown_tier1_half_size: float = 0.06   # 6% DD halves size
     drawdown_tier1_size_scale: float = 0.50  # 50% scale
     drawdown_tier2_exits_only: float = 0.12  # 12% DD exits only
-    min_cash_reserve_fraction: float = 0.10  # 10% cash minimum
-    max_cash_reserve_fraction: float = 0.15  # 15% cash target
+    min_cash_reserve_fraction: float = 0.20  # 20% cash minimum (MANTHAN 20-30% rule)
+    max_cash_reserve_fraction: float = 0.30  # 30% cash target (MANTHAN 20-30% rule)
 
     # 14. Execution
     max_requests_per_minute: int = 100
@@ -131,6 +133,12 @@ class LiveDecisionConfig:
     engine_version: str = "2.0.0"
 
     def __post_init__(self) -> None:
+        if self.long_roundtrip_cost_fixed <= 0.0:
+            calc_long = (self.friction_params.flat_brokerage_inr * 2.0) + self.friction_params.flat_dp_charges_inr
+            object.__setattr__(self, "long_roundtrip_cost_fixed", calc_long)
+        if self.short_roundtrip_cost_fixed <= 0.0:
+            calc_short = self.friction_params.flat_brokerage_inr * 2.0
+            object.__setattr__(self, "short_roundtrip_cost_fixed", calc_short)
         for name, val in [
             ("volatility_lambda", self.volatility_lambda),
             ("min_volatility_floor", self.min_volatility_floor),
