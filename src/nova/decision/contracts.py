@@ -23,12 +23,100 @@ from nova.quant.contracts import (
 
 class ActionType(str, Enum):
     """Supported actions evaluated by the decision engine."""
-    BUY = "BUY"
-    SELL = "SELL"
-    HOLD = "HOLD"
-    REDUCE = "REDUCE"
-    EXIT = "EXIT"
-    NO_TRADE = "NO_TRADE"
+    BUY = "BUY"          # Open new long or add to long position
+    SELL = "SELL"        # Close or reduce owned long shares (incurs ₹15.34 DP + ₹20 brokerage)
+    SHORT = "SHORT"      # Open new short or add to short position (locks margin, ₹20 brokerage)
+    COVER = "COVER"      # Close or reduce short position (releases margin, ₹20 brokerage)
+    HOLD = "HOLD"        # Maintain current position
+    REDUCE = "REDUCE"    # Generic position scale-down
+    EXIT = "EXIT"        # Generic position closure
+    NO_TRADE = "NO_TRADE" # Abstain from trading
+
+
+@dataclass(frozen=True, slots=True)
+class PositionState:
+    """Point-in-time state of an individual instrument holding.
+
+    Consumed from Person 1's portfolio ledger or simulation tracker.
+    """
+    ticker: str
+    quantity: float                        # > 0 for Long, < 0 for Short, == 0 for Flat
+    entry_price: float
+    current_market_price: float
+    holding_days: int = 0                  # Simulated trading days position has been open
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+    locked_margin: float = 0.0             # Margin locked for short positions
+
+    @property
+    def is_long(self) -> bool:
+        return self.quantity > 1e-6
+
+    @property
+    def is_short(self) -> bool:
+        return self.quantity < -1e-6
+
+    @property
+    def is_flat(self) -> bool:
+        return abs(self.quantity) <= 1e-6
+
+    @property
+    def market_value(self) -> float:
+        """Current market value of position (positive for long, negative for short)."""
+        return self.quantity * self.current_market_price
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioState:
+    """Point-in-time account and portfolio state consumed by the decision engine.
+
+    Represents MANTHAN 2026 account state:
+    Total Wealth = Available Cash + Margin Locked + Market Value of All Stocks Held
+    """
+    available_cash: float                  # Liquid capital available (starts at 10,00,000)
+    locked_margin: float = 0.0             # Collateral locked for active short positions
+    positions: Mapping[str, PositionState] = field(default_factory=dict)
+    initial_capital: float = 1000000.0     # Default MANTHAN 2026 ₹10,00,000
+    peak_wealth: float = 1000000.0
+    realized_pnl_total: float = 0.0
+    fees_paid_total: float = 0.0
+
+    @property
+    def long_market_value(self) -> float:
+        """Sum of market values of all owned long shares."""
+        return sum(pos.market_value for pos in self.positions.values() if pos.is_long)
+
+    @property
+    def total_wealth(self) -> float:
+        """Authoritative Total Wealth definition from MANTHAN guide:
+        Total Wealth = Available Cash + Margin Locked + Market Value of All Stocks Held
+        """
+        return self.available_cash + self.locked_margin + self.long_market_value
+
+    @property
+    def current_drawdown(self) -> float:
+        """Current drawdown percentage relative to peak wealth."""
+        if self.peak_wealth <= 0.0:
+            return 0.0
+        return max(0.0, (self.peak_wealth - self.total_wealth) / self.peak_wealth)
+
+    @property
+    def cash_fraction(self) -> float:
+        """Fraction of total wealth held in liquid cash."""
+        wealth = self.total_wealth
+        return self.available_cash / wealth if wealth > 0.0 else 0.0
+
+    def get_position(self, ticker: str) -> PositionState:
+        """Get position state for ticker or return a flat position."""
+        return self.positions.get(
+            ticker,
+            PositionState(
+                ticker=ticker,
+                quantity=0.0,
+                entry_price=0.0,
+                current_market_price=0.0,
+            ),
+        )
 
 
 class OrderType(str, Enum):

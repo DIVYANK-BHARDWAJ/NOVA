@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--spread-bps", type=float, default=2.0, help="Bid-ask spread in bps")
     parser.add_argument("--slippage-bps", type=float, default=3.0, help="Execution slippage in bps")
     parser.add_argument("--brokerage-bps", type=float, default=1.0, help="Brokerage commission in bps")
-    parser.add_argument("--capital", type=float, default=500000.0, help="Initial portfolio capital in INR")
+    parser.add_argument("--capital", type=float, default=1000000.0, help="Initial portfolio capital in INR (default ₹10,00,000)")
     parser.add_argument("--output-json", type=str, default=None, help="Optional output JSON path for results")
     return parser.parse_args()
 
@@ -83,6 +83,8 @@ def main() -> int:
         slippage_bps=args.slippage_bps,
         brokerage_bps=args.brokerage_bps,
         tax_bps=1.0,
+        flat_brokerage_inr=20.0,
+        flat_dp_charges_inr=15.34,
     )
     friction_engine = MarketFrictionEngine(friction_params)
 
@@ -90,7 +92,8 @@ def main() -> int:
     risk_config = RiskConfiguration(
         max_position_exposure=0.25,
         max_drawdown_limit=0.15,
-        allow_short=False,
+        allow_short=True,
+        initial_capital=args.capital,
     )
     risk_gate = DeterministicRiskGate(risk_config)
 
@@ -141,19 +144,25 @@ def main() -> int:
         rep_live = ChronologicalReplayEngine(decision_engine=live_engine, friction_engine=friction_engine)
         sum_live = rep_live.run(bars, warmup_bars=args.warmup, initial_capital=args.capital)
 
-        print("=" * 82)
+        print("=" * 86)
         print("SENTINEL TRADER -- HEAD-TO-HEAD REPLAY EVALUATION (BASELINE vs 14-STEP LIVE ENGINE)")
-        print("=" * 82)
-        print(f"{'Metric':<32} | {'Baseline Ensemble':<20} | {'14-Step Live Engine':<20}")
-        print("-" * 82)
-        print(f"{'Evaluated Steps':<32} | {sum_base.evaluated_steps:<20} | {sum_live.evaluated_steps:<20}")
-        print(f"{'Gross Cumulative Return':<32} | {sum_base.gross_cumulative_return*100:>+18.2f}% | {sum_live.gross_cumulative_return*100:>+18.2f}%")
-        print(f"{'Friction Incurred':<32} | {sum_base.total_friction_cost*100:>19.3f}% | {sum_live.total_friction_cost*100:>19.3f}%")
-        print(f"{'Net Cumulative Return':<32} | {sum_base.net_cumulative_return*100:>+18.2f}% | {sum_live.net_cumulative_return*100:>+18.2f}%")
-        print(f"{'Maximum Drawdown':<32} | {sum_base.max_drawdown*100:>19.2f}% | {sum_live.max_drawdown*100:>19.2f}%")
-        print(f"{'Win Rate':<32} | {sum_base.win_rate*100:>19.1f}% | {sum_live.win_rate*100:>19.1f}%")
-        print(f"{'Benchmark (Buy & Hold)':<32} | {sum_base.benchmark_buy_and_hold_return*100:>+18.2f}% | {sum_live.benchmark_buy_and_hold_return*100:>+18.2f}%")
-        print("=" * 82)
+        print("=" * 86)
+        print(f"{'Metric':<34} | {'Baseline Ensemble':<22} | {'14-Step Live Engine':<22}")
+        print("-" * 86)
+        print(f"{'Evaluated Steps':<34} | {sum_base.evaluated_steps:<22} | {sum_live.evaluated_steps:<22}")
+        print(f"{'Executed Trades':<34} | {sum_base.total_trades:<22} | {sum_live.total_trades:<22}")
+        print(f"{'Trading Fees Incurred (INR)':<34} | INR {sum_base.total_fees_inr:>16,.2f} | INR {sum_live.total_fees_inr:>16,.2f}")
+        print(f"{'Total Portfolio Turnover':<34} | {sum_base.total_turnover:>21.2f}x | {sum_live.total_turnover:>21.2f}x")
+        print(f"{'Gross Cumulative Return':<34} | {sum_base.gross_cumulative_return*100:>+20.2f}% | {sum_live.gross_cumulative_return*100:>+20.2f}%")
+        print(f"{'Friction Ratio Drag':<34} | {sum_base.total_friction_cost*100:>21.3f}% | {sum_live.total_friction_cost*100:>21.3f}%")
+        print(f"{'Net Cumulative Return':<34} | {sum_base.net_cumulative_return*100:>+20.2f}% | {sum_live.net_cumulative_return*100:>+20.2f}%")
+        print(f"{'Net Realized P&L (INR)':<34} | INR {sum_base.net_pnl_inr:>+16,.2f} | INR {sum_live.net_pnl_inr:>+16,.2f}")
+        print(f"{'Final Account Wealth (INR)':<34} | INR {sum_base.final_wealth_inr:>16,.2f} | INR {sum_live.final_wealth_inr:>16,.2f}")
+        print(f"{'Maximum Drawdown':<34} | {sum_base.max_drawdown*100:>21.2f}% | {sum_live.max_drawdown*100:>21.2f}%")
+        print(f"{'Trade Win Rate':<34} | {sum_base.win_rate*100:>21.1f}% | {sum_live.win_rate*100:>21.1f}%")
+        print(f"{'Risk Gate Violations':<34} | {sum_base.risk_violations:<22} | {sum_live.risk_violations:<22}")
+        print(f"{'Benchmark (Buy & Hold)':<34} | {sum_base.benchmark_buy_and_hold_return*100:>+20.2f}% | {sum_live.benchmark_buy_and_hold_return*100:>+20.2f}%")
+        print("=" * 86)
         summary = sum_live
 
     if args.output_json:
@@ -162,11 +171,16 @@ def main() -> int:
             "ticker": summary.ticker,
             "total_bars": summary.total_input_bars,
             "evaluated_steps": summary.evaluated_steps,
+            "total_trades": summary.total_trades,
+            "trading_fees_inr": summary.total_fees_inr,
+            "net_pnl_inr": summary.net_pnl_inr,
+            "final_wealth_inr": summary.final_wealth_inr,
             "gross_return": summary.gross_cumulative_return,
             "net_return": summary.net_cumulative_return,
             "friction_cost": summary.total_friction_cost,
             "max_drawdown": summary.max_drawdown,
             "win_rate": summary.win_rate,
+            "risk_violations": summary.risk_violations,
             "action_counts": summary.action_counts,
         }
         with open(args.output_json, "w", encoding="utf-8") as f:

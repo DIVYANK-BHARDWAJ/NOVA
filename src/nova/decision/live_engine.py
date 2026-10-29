@@ -287,13 +287,19 @@ class LiveDecisionCoreEngine:
         available_cash: float = 100000.0,
         current_portfolio_value: float = 100000.0,
         as_of_time: datetime | None = None,
+        position_state: Any = None,
+        portfolio_state: Any = None,
+        **kwargs: Any,
     ) -> TradeDecision:
         """Adapter matching the replay interface for seamless multi-engine evaluation."""
+        equity = portfolio_state.total_wealth if portfolio_state is not None else current_portfolio_value
+        cash = portfolio_state.available_cash if portfolio_state is not None else available_cash
+        dd = portfolio_state.current_drawdown if portfolio_state is not None else current_drawdown
         return self.evaluate_stock_day(
             bars=bars,
-            total_equity=current_portfolio_value,
-            available_cash=available_cash,
-            current_drawdown=current_drawdown,
+            total_equity=equity,
+            available_cash=cash,
+            current_drawdown=dd,
         )
 
     def evaluate_stock_day(

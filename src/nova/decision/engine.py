@@ -14,7 +14,13 @@ import math
 import uuid
 from typing import Sequence
 
-from nova.decision.contracts import ActionType, OrderType, TradeDecision
+from nova.decision.contracts import (
+    ActionType,
+    OrderType,
+    PortfolioState,
+    PositionState,
+    TradeDecision,
+)
 from nova.decision.prediction import BasePredictor, PredictionResult
 from nova.decision.regime import MarketRegimeDetector, MarketRegimeType
 from nova.friction.models import FrictionParameters, MarketFrictionEngine
@@ -43,8 +49,13 @@ class DecisionEngineConfig:
     use_regime_weighting: bool = False        # Whether to dynamically weight by regime efficiency ratio
     predictor_weight: float = 0.0             # Weight of ML return prediction in [0.0, 1.0]
     min_prediction_confidence: float = 0.5    # Minimum confidence required to incorporate ML prediction
+    allow_short: bool = False                # False by default for compatibility, True for MANTHAN
+    rebalance_band_fraction: float = 0.015    # 1.5% deadband to reject repeated churn orders
+    stop_loss_pct: float = 0.04              # 4% stop-loss threshold
+    max_short_holding_days: int = 10         # 10 trading days short auto-settlement
+    initial_capital: float = 1000000.0       # MANTHAN initial capital ₹10,00,000
     engine_id: str = "sentinel_decision_engine"
-    engine_version: str = "1.1.0"
+    engine_version: str = "1.2.0"
 
     def __post_init__(self) -> None:
         validate_finite(self.trend_weight, "trend_weight")
@@ -66,6 +77,16 @@ class DecisionEngineConfig:
         validate_finite(self.min_prediction_confidence, "min_prediction_confidence")
         if not (0.0 <= self.min_prediction_confidence <= 1.0):
             raise ContractValidationError(f"min_prediction_confidence must be in [0, 1], got {self.min_prediction_confidence}")
+
+        validate_finite(self.rebalance_band_fraction, "rebalance_band_fraction")
+        if self.rebalance_band_fraction < 0.0:
+            raise ContractValidationError("rebalance_band_fraction cannot be negative")
+        validate_finite(self.stop_loss_pct, "stop_loss_pct")
+        if self.stop_loss_pct <= 0.0:
+            raise ContractValidationError("stop_loss_pct must be positive")
+        validate_finite(self.initial_capital, "initial_capital")
+        if self.initial_capital <= 0.0:
+            raise ContractValidationError("initial_capital must be positive")
 
 
 class SentinelDecisionEngine:
@@ -97,6 +118,8 @@ class SentinelDecisionEngine:
         available_cash: float = 1.0,
         current_portfolio_value: float = 1.0,
         as_of_time: datetime | None = None,
+        position_state: PositionState | None = None,
+        portfolio_state: PortfolioState | None = None,
     ) -> TradeDecision:
         """Evaluate market state causally and produce an authoritative TradeDecision."""
         if not bars:
@@ -105,6 +128,30 @@ class SentinelDecisionEngine:
         latest_bar = bars[-1]
         as_of = as_of_time or latest_bar.source_timestamp
         ticker = latest_bar.ticker
+
+        # Consume position and portfolio state if provided
+        if portfolio_state is not None:
+            available_cash = portfolio_state.available_cash
+            current_portfolio_value = portfolio_state.total_wealth
+            current_drawdown = portfolio_state.current_drawdown
+            pos = position_state or portfolio_state.get_position(ticker)
+            current_quantity = pos.quantity
+            entry_price = pos.entry_price
+            holding_days = pos.holding_days
+            locked_margin = pos.locked_margin
+            current_position_exposure = (pos.market_value / current_portfolio_value) if current_portfolio_value > 0 else 0.0
+        elif position_state is not None:
+            current_quantity = position_state.quantity
+            entry_price = position_state.entry_price
+            holding_days = position_state.holding_days
+            locked_margin = position_state.locked_margin
+            if abs(current_position_exposure) <= 1e-4 and current_portfolio_value > 0.0:
+                current_position_exposure = position_state.market_value / current_portfolio_value
+        else:
+            current_quantity = (current_position_exposure * current_portfolio_value) / max(1e-6, latest_bar.close)
+            entry_price = latest_bar.close
+            holding_days = 0
+            locked_margin = 0.0
 
         reasons: list[str] = []
 
@@ -193,51 +240,111 @@ class SentinelDecisionEngine:
         expected_utility = expected_net - uncertainty_penalty
         min_net_edge = self.config.min_net_edge_bps / 10000.0
 
+        # Break-Even Price Calculation
+        be_price = self.friction_engine.calculate_break_even_price(
+            entry_price=latest_bar.close,
+            quantity=max(1.0, abs(current_quantity)),
+            is_short=(current_position_exposure < -1e-4),
+        )
+        reasons.append(f"BREAK_EVEN_PRICE_{be_price:.2f}")
         reasons.append(f"COMBINED_SCORE_{combined_score:.3f}")
         reasons.append(f"EXPECTED_GROSS_{expected_gross:.5f}_COST_{all_in_cost:.5f}_NET_{expected_net:.5f}_UTILITY_{expected_utility:.5f}")
 
-        # 5. Action Selection Logic
+        # 5. Position-Aware Action Selection Logic (MANTHAN 2026 Rules)
         candidate_action: ActionType
         candidate_exposure: float
 
-        is_currently_invested = abs(current_position_exposure) > 1e-4
+        is_long = current_position_exposure > 1e-4
+        is_short = current_position_exposure < -1e-4
+        is_flat = not is_long and not is_short
 
-        if combined_score > 0.15 and expected_utility >= min_net_edge:
-            if not is_currently_invested:
-                candidate_action = ActionType.BUY
-                candidate_exposure = self.config.target_exposure
-                reasons.append("SIGNAL_BULLISH_NET_EDGE_EXCEEDS_FRICTION_BUY")
-            else:
-                candidate_action = ActionType.HOLD
-                candidate_exposure = current_position_exposure
-                reasons.append("SIGNAL_BULLISH_POSITION_MAINTAINED_HOLD")
-
-        elif combined_score < -0.15:
-            if is_currently_invested and current_position_exposure > 0:
-                candidate_action = ActionType.EXIT
+        if is_long:
+            # Check stop loss
+            if latest_bar.close <= entry_price * (1.0 - self.config.stop_loss_pct):
+                candidate_action = ActionType.SELL
                 candidate_exposure = 0.0
-                reasons.append("SIGNAL_BEARISH_CLOSING_LONG_POSITION_EXIT")
-            else:
-                candidate_action = ActionType.NO_TRADE
+                reasons.append("STOP_LOSS_LONG_TRIGGERED_SELL")
+            elif combined_score > 0.15 and expected_utility >= min_net_edge:
+                target_exp = self.config.target_exposure
+                # Churn prevention: check rebalance band
+                if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
+                    candidate_action = ActionType.HOLD
+                    candidate_exposure = current_position_exposure
+                    reasons.append("POSITION_WITHIN_REBALANCE_BAND_HOLD")
+                else:
+                    candidate_action = ActionType.BUY
+                    candidate_exposure = target_exp
+                    reasons.append("ADD_TO_LONG_POSITION_BUY")
+            elif combined_score < -0.15:
+                # Bearish reversal: exit owned long shares
+                candidate_action = ActionType.SELL
                 candidate_exposure = 0.0
-                reasons.append("SIGNAL_BEARISH_FLAT_PORTFOLIO_NO_TRADE")
-
-        else:
-            # Score near zero or net edge does not survive friction
-            if expected_net < min_net_edge and combined_score > 0.15:
-                reasons.append("POSITIVE_GROSS_EDGE_ERODED_BY_FRICTION_ABSTAIN")
-
-            if is_currently_invested:
-                # Neutral signal while holding -> maintain or exit based on score sign
+                reasons.append("BEARISH_REVERSAL_CLOSE_LONG_SELL")
+            else:
                 if combined_score < -0.05:
-                    candidate_action = ActionType.EXIT
+                    candidate_action = ActionType.SELL
                     candidate_exposure = 0.0
-                    reasons.append("NEUTRAL_WEAK_SIGNAL_EXIT_LONG")
+                    reasons.append("NEUTRAL_WEAK_SIGNAL_SELL_LONG")
                 else:
                     candidate_action = ActionType.HOLD
                     candidate_exposure = current_position_exposure
-                    reasons.append("NEUTRAL_SIGNAL_HOLD_EXISTING")
+                    reasons.append("NEUTRAL_SIGNAL_HOLD_LONG")
+
+        elif is_short:
+            # Check 10-day settlement
+            if holding_days >= self.config.max_short_holding_days:
+                candidate_action = ActionType.COVER
+                candidate_exposure = 0.0
+                reasons.append(f"SHORT_10_DAY_SETTLEMENT_AUTO_CLOSE_DAYS_{holding_days}")
+            # Check stop loss
+            elif latest_bar.close >= entry_price * (1.0 + self.config.stop_loss_pct):
+                candidate_action = ActionType.COVER
+                candidate_exposure = 0.0
+                reasons.append("STOP_LOSS_SHORT_TRIGGERED_COVER")
+            elif combined_score < -0.15:
+                target_exp = -self.config.target_exposure
+                if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
+                    candidate_action = ActionType.HOLD
+                    candidate_exposure = current_position_exposure
+                    reasons.append("POSITION_WITHIN_REBALANCE_BAND_HOLD")
+                else:
+                    candidate_action = ActionType.SHORT
+                    candidate_exposure = target_exp
+                    reasons.append("ADD_TO_SHORT_POSITION_SHORT")
+            elif combined_score > 0.15:
+                # Bullish reversal: close short position
+                candidate_action = ActionType.COVER
+                candidate_exposure = 0.0
+                reasons.append("BULLISH_REVERSAL_CLOSE_SHORT_COVER")
             else:
+                if combined_score > 0.05:
+                    candidate_action = ActionType.COVER
+                    candidate_exposure = 0.0
+                    reasons.append("NEUTRAL_WEAK_SIGNAL_COVER_SHORT")
+                else:
+                    candidate_action = ActionType.HOLD
+                    candidate_exposure = current_position_exposure
+                    reasons.append("NEUTRAL_SIGNAL_HOLD_SHORT")
+
+        else:
+            # Currently flat portfolio
+            if combined_score > 0.15 and expected_utility >= min_net_edge:
+                candidate_action = ActionType.BUY
+                candidate_exposure = self.config.target_exposure
+                reasons.append("SIGNAL_BULLISH_NET_EDGE_EXCEEDS_FRICTION_BUY")
+            elif combined_score < -0.15:
+                can_short = self.config.allow_short or self.risk_gate.config.allow_short
+                if can_short and expected_net < -min_net_edge:
+                    candidate_action = ActionType.SHORT
+                    candidate_exposure = -self.config.target_exposure
+                    reasons.append("SIGNAL_BEARISH_NET_EDGE_EXCEEDS_FRICTION_SHORT")
+                else:
+                    candidate_action = ActionType.NO_TRADE
+                    candidate_exposure = 0.0
+                    reasons.append("SIGNAL_BEARISH_FLAT_PORTFOLIO_NO_TRADE")
+            else:
+                if expected_net < min_net_edge and combined_score > 0.15:
+                    reasons.append("POSITIVE_GROSS_EDGE_ERODED_BY_FRICTION_ABSTAIN")
                 candidate_action = ActionType.NO_TRADE
                 candidate_exposure = 0.0
                 reasons.append("NO_SUFFICIENT_NET_EDGE_NO_TRADE")
@@ -252,6 +359,11 @@ class SentinelDecisionEngine:
             current_drawdown=current_drawdown,
             available_cash=available_cash,
             current_portfolio_value=current_portfolio_value,
+            current_position_quantity=current_quantity,
+            position_entry_price=entry_price,
+            current_market_price=latest_bar.close,
+            short_holding_days=holding_days,
+            locked_margin=locked_margin,
         )
 
         for r_code in risk_result.risk_reason_codes:
@@ -259,7 +371,14 @@ class SentinelDecisionEngine:
 
         final_action = risk_result.authorized_action
         final_exposure = risk_result.authorized_exposure
-        order_type = OrderType.MARKET if final_action in (ActionType.BUY, ActionType.SELL, ActionType.EXIT, ActionType.REDUCE) else OrderType.NONE
+        order_type = OrderType.MARKET if final_action in (
+            ActionType.BUY,
+            ActionType.SELL,
+            ActionType.SHORT,
+            ActionType.COVER,
+            ActionType.EXIT,
+            ActionType.REDUCE,
+        ) else OrderType.NONE
 
         model_versions_list = [
             ("trend_following", self.trend_strategy.config.strategy_id),

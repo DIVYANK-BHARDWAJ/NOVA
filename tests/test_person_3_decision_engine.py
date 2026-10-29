@@ -257,6 +257,202 @@ class TestSentinelDecisionEngine(unittest.TestCase):
         with self.assertRaises(ContractValidationError):
             DecisionEngineConfig(min_prediction_confidence=1.2)
 
+    def test_manthan_fee_calculations(self) -> None:
+        from nova.friction.models import FrictionParameters, MarketFrictionEngine
+        params = FrictionParameters(flat_brokerage_inr=20.0, flat_dp_charges_inr=15.34)
+        engine = MarketFrictionEngine(params)
+
+        # BUY order: Flat ₹20 + proportional
+        buy_fee = engine.calculate_order_fee_inr("BUY", notional=100000.0)
+        self.assertGreaterEqual(buy_fee, 20.0)
+
+        # SELL order: Flat ₹20 + Flat ₹15.34 DP + proportional
+        sell_fee = engine.calculate_order_fee_inr("SELL", notional=100000.0)
+        self.assertAlmostEqual(sell_fee - buy_fee, 15.34, places=2)
+
+        # SHORT order: Flat ₹20 (NO DP charges)
+        short_fee = engine.calculate_order_fee_inr("SHORT", notional=100000.0)
+        self.assertAlmostEqual(short_fee, buy_fee, places=2)
+
+        # Break-even price calculation
+        # Long break-even target price must be higher than entry price
+        be_long = engine.calculate_break_even_price(entry_price=1000.0, quantity=50, is_short=False)
+        self.assertGreater(be_long, 1000.0)
+
+        # Short break-even target price must be lower than entry price
+        be_short = engine.calculate_break_even_price(entry_price=1000.0, quantity=50, is_short=True)
+        self.assertLess(be_short, 1000.0)
+
+    def test_manthan_short_and_cover_flow(self) -> None:
+        from nova.decision.contracts import PortfolioState, PositionState
+        # Strong bearish price series
+        prices = [100.0 - (i * 1.5) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        risk_cfg = RiskConfiguration(allow_short=True)
+        risk_gate = DeterministicRiskGate(risk_cfg)
+        cfg = DecisionEngineConfig(allow_short=True)
+        engine = SentinelDecisionEngine(config=cfg, risk_gate=risk_gate)
+
+        # 1. From Flat, Bearish signal produces SHORT
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+        self.assertEqual(decision.selected_action, ActionType.SHORT)
+        self.assertLess(decision.target_quantity_or_exposure, 0.0)
+
+        # 2. Bullish reversal while holding Short produces COVER
+        bullish_prices = [50.0 + (i * 2.0) for i in range(40)]
+        bullish_bars = create_synthetic_bars(bullish_prices)
+        short_pos = PositionState(
+            ticker="SYNTH",
+            quantity=-50.0,
+            entry_price=100.0,
+            current_market_price=130.0,
+            holding_days=2,
+            locked_margin=5000.0,
+        )
+        cover_decision = engine.evaluate_decision(
+            bars=bullish_bars,
+            current_position_exposure=-0.20,
+            position_state=short_pos,
+        )
+        self.assertEqual(cover_decision.selected_action, ActionType.COVER)
+        self.assertAlmostEqual(cover_decision.target_quantity_or_exposure, 0.0)
+
+    def test_manthan_stop_loss_long(self) -> None:
+        from nova.decision.contracts import PositionState
+        prices = [100.0 - (i * 0.2) for i in range(40)]  # Current close ~ 92.2
+        bars = create_synthetic_bars(prices)
+
+        # Long position bought at 100.0; price is now 92.2 (-7.8% drop, exceeds 4% stop loss)
+        long_pos = PositionState(
+            ticker="SYNTH",
+            quantity=100.0,
+            entry_price=100.0,
+            current_market_price=bars[-1].close,
+            holding_days=3,
+        )
+        cfg = DecisionEngineConfig(stop_loss_pct=0.04)
+        engine = SentinelDecisionEngine(config=cfg)
+        decision = engine.evaluate_decision(bars, position_state=long_pos)
+
+        self.assertEqual(decision.selected_action, ActionType.SELL)
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("STOP_LOSS_LONG" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_manthan_stop_loss_short(self) -> None:
+        from nova.decision.contracts import PositionState
+        prices = [100.0 + (i * 0.3) for i in range(40)]  # Current close ~ 111.7
+        bars = create_synthetic_bars(prices)
+
+        # Short position entered at 100.0; price rose to 111.7 (+11.7% rise, exceeds 4% stop loss)
+        short_pos = PositionState(
+            ticker="SYNTH",
+            quantity=-100.0,
+            entry_price=100.0,
+            current_market_price=bars[-1].close,
+            holding_days=3,
+            locked_margin=10000.0,
+        )
+        risk_cfg = RiskConfiguration(allow_short=True, stop_loss_pct=0.04)
+        risk_gate = DeterministicRiskGate(risk_cfg)
+        cfg = DecisionEngineConfig(allow_short=True, stop_loss_pct=0.04)
+        engine = SentinelDecisionEngine(config=cfg, risk_gate=risk_gate)
+
+        decision = engine.evaluate_decision(bars, position_state=short_pos)
+        self.assertEqual(decision.selected_action, ActionType.COVER)
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("STOP_LOSS_SHORT" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_manthan_short_10_day_auto_settlement(self) -> None:
+        from nova.decision.contracts import PositionState
+        prices = [100.0 for _ in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        # Short position open for 10 trading days must be forcibly covered per MANTHAN bi-weekly rule
+        short_pos = PositionState(
+            ticker="SYNTH",
+            quantity=-50.0,
+            entry_price=100.0,
+            current_market_price=100.0,
+            holding_days=10,  # Exactly 10 days
+            locked_margin=5000.0,
+        )
+        risk_cfg = RiskConfiguration(allow_short=True, max_short_holding_days=10)
+        risk_gate = DeterministicRiskGate(risk_cfg)
+        cfg = DecisionEngineConfig(allow_short=True, max_short_holding_days=10)
+        engine = SentinelDecisionEngine(config=cfg, risk_gate=risk_gate)
+
+        decision = engine.evaluate_decision(bars, position_state=short_pos)
+        self.assertEqual(decision.selected_action, ActionType.COVER)
+        self.assertAlmostEqual(decision.target_quantity_or_exposure, 0.0)
+        self.assertTrue(any("SHORT_10_DAY_SETTLEMENT" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_manthan_churn_prevention_rebalance_band(self) -> None:
+        from nova.decision.contracts import PositionState
+        # Strong bullish series
+        prices = [100.0 + (i * 2.0) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        # Target exposure is 0.20; current exposure is 0.19 (difference = 0.01 < 0.015 band)
+        pos = PositionState(
+            ticker="SYNTH",
+            quantity=19.0,
+            entry_price=100.0,
+            current_market_price=bars[-1].close,
+            holding_days=2,
+        )
+        cfg = DecisionEngineConfig(target_exposure=0.20, rebalance_band_fraction=0.015)
+        engine = SentinelDecisionEngine(config=cfg)
+
+        # Current exposure 0.19 should produce HOLD to avoid churn fees
+        decision = engine.evaluate_decision(
+            bars=bars,
+            current_position_exposure=0.19,
+            position_state=pos,
+        )
+        self.assertEqual(decision.selected_action, ActionType.HOLD)
+        self.assertTrue(any("POSITION_WITHIN_REBALANCE_BAND_HOLD" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_manthan_insufficient_margin_short(self) -> None:
+        prices = [100.0 - (i * 1.5) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        risk_cfg = RiskConfiguration(allow_short=True)
+        risk_gate = DeterministicRiskGate(risk_cfg)
+        cfg = DecisionEngineConfig(allow_short=True, target_exposure=0.20)
+        engine = SentinelDecisionEngine(config=cfg, risk_gate=risk_gate)
+
+        # Available cash is only ₹100, but required margin for 20% on ₹10,00,000 portfolio is ₹2,00,000
+        decision = engine.evaluate_decision(
+            bars=bars,
+            current_position_exposure=0.0,
+            available_cash=100.0,
+            current_portfolio_value=1000000.0,
+        )
+        self.assertEqual(decision.selected_action, ActionType.NO_TRADE)
+        self.assertTrue(any("INSUFFICIENT_MARGIN" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_portfolio_state_total_wealth(self) -> None:
+        from nova.decision.contracts import PortfolioState, PositionState
+        # Total Wealth = Available Cash + Margin Locked + Market Value of All Stocks Held
+        long_pos = PositionState(ticker="LONG_CO", quantity=100.0, entry_price=500.0, current_market_price=600.0)
+        short_pos = PositionState(ticker="SHORT_CO", quantity=-50.0, entry_price=1000.0, current_market_price=900.0, locked_margin=50000.0)
+
+        port = PortfolioState(
+            available_cash=350000.0,
+            locked_margin=50000.0,
+            positions={"LONG_CO": long_pos, "SHORT_CO": short_pos},
+            initial_capital=1000000.0,
+            peak_wealth=1000000.0,
+        )
+
+        # Long market value: 100 * 600 = 60,000
+        self.assertEqual(port.long_market_value, 60000.0)
+        # Total wealth: 350,000 + 50,000 + 60,000 = 460,000
+        self.assertEqual(port.total_wealth, 460000.0)
+        # Drawdown: (1,000,000 - 460,000) / 1,000,000 = 54%
+        self.assertAlmostEqual(port.current_drawdown, 0.54, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,3 +45,6 @@ venv.bak/
 .coverage
 htmlcov/
 .tox/
+
+# Local reference PDFs
+*.pdf

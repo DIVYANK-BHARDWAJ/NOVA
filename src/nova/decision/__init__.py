@@ -1,6 +1,12 @@
 """NOVA Decision Intelligence Subsystem (Person 3 Exclusive Domain)."""
 
-from nova.decision.contracts import ActionType, OrderType, TradeDecision
+from nova.decision.contracts import (
+    ActionType,
+    OrderType,
+    PortfolioState,
+    PositionState,
+    TradeDecision,
+)
 from nova.decision.engine import DecisionEngineConfig, SentinelDecisionEngine
 from nova.decision.live_engine import LiveDecisionConfig, LiveDecisionCoreEngine
 from nova.decision.prediction import (
@@ -19,6 +25,8 @@ from nova.decision.regime import (
 __all__ = [
     "ActionType",
     "OrderType",
+    "PositionState",
+    "PortfolioState",
     "TradeDecision",
     "DecisionEngineConfig",
     "SentinelDecisionEngine",
