@@ -52,6 +52,13 @@ slow_window = 26
 signal_window = 9
 volatility_scaling = true
 
+[strategies.ema_crossover]
+enabled = true
+description = "Core Baseline: Fast/Slow Exponential Moving Average Crossover"
+fast_window = 12
+slow_window = 26
+volatility_scaling = false
+
 [strategies.relative_strength]
 enabled = true
 description = "Core Strategy 2: Cross-Sectional Relative Strength"

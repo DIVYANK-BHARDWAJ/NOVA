@@ -16,6 +16,9 @@ CRITICAL INVARIANTS:
    must NEVER be assumed causally available at evaluation time.
 3. Unit Compatibility: Return and cost metrics must be expressed as dimensionless decimal
    returns (e.g. 0.015 for +1.50%). Monetary fees must not be directly subtracted from returns.
+4. Expected Net Edge: Requires all 4 components (gross return, trading cost, execution friction,
+   uncertainty penalty). Missing components produce None (NO fabricated zeros).
+5. Score Semantics: Enforces strictly documented valid ranges per semantic definition.
 """
 
 from __future__ import annotations
@@ -91,11 +94,12 @@ class ScoreSemantics(str, Enum):
 
     NOTE: A score must NOT be called a probability unless calibration is explicitly demonstrated.
     """
-    RAW_INTENSITY = "RAW_INTENSITY"         # Bounded [-1.0, 1.0], 0.0 is neutral
-    RANK_DECILE = "RANK_DECILE"             # Cross-sectional decile [1.0, 10.0] or quantile [0.0, 1.0]
-    Z_SCORE = "Z_SCORE"                     # Standardized score in standard deviations
-    EMPIRICAL_EDGE_BPS = "EMPIRICAL_EDGE_BPS" # Estimated expected edge in basis points
-    UNSPECIFIED = "UNSPECIFIED"             # Uncalibrated score (requires review)
+    RAW_INTENSITY = "RAW_INTENSITY"               # Bounded [-1.0, 1.0], 0.0 is neutral
+    RANK_DECILE = "RANK_DECILE"                   # Cross-sectional decile in [1.0, 10.0]
+    RANK_PERCENTILE = "RANK_PERCENTILE"           # Cross-sectional percentile in [0.0, 1.0]
+    Z_SCORE = "Z_SCORE"                           # Standardized score in standard-deviation units
+    EMPIRICAL_EDGE_BPS = "EMPIRICAL_EDGE_BPS"     # Estimated expected edge in basis points
+    UNSPECIFIED = "UNSPECIFIED"                   # Explicitly uncalibrated/unspecified score
 
 
 class EvaluationStatus(str, Enum):
@@ -131,9 +135,9 @@ def validate_timezone_aware(dt: datetime, field_name: str) -> None:
 
 
 def validate_finite(value: float, field_name: str) -> None:
-    """Ensure float is finite (not NaN, +inf, -inf)."""
-    if not isinstance(value, (int, float)):
-        raise NumericalValidationError(f"Field '{field_name}' must be numeric, got {type(value)}")
+    """Ensure float is finite (not NaN, +inf, -inf) and not a boolean."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise NumericalValidationError(f"Field '{field_name}' must be numeric (non-boolean), got {type(value)}")
     if not math.isfinite(value):
         raise NumericalValidationError(f"Field '{field_name}' must be finite, got {value}")
 
@@ -256,16 +260,36 @@ class CandidateSignal:
         if not isinstance(self.direction, SignalDirection):
             raise ContractValidationError(f"Invalid SignalDirection: {self.direction}")
 
+        # Signal score finiteness and semantic boundary validation
         validate_finite(self.signal_score, "signal_score")
         if not isinstance(self.score_semantics, ScoreSemantics):
             raise ContractValidationError(f"Invalid ScoreSemantics: {self.score_semantics}")
+
+        if self.score_semantics == ScoreSemantics.RAW_INTENSITY:
+            if not (-1.0 <= self.signal_score <= 1.0):
+                raise NumericalValidationError(
+                    f"RAW_INTENSITY signal_score must be in [-1.0, 1.0], got {self.signal_score}"
+                )
+        elif self.score_semantics == ScoreSemantics.RANK_DECILE:
+            if not (1.0 <= self.signal_score <= 10.0):
+                raise NumericalValidationError(
+                    f"RANK_DECILE signal_score must be in [1.0, 10.0], got {self.signal_score}"
+                )
+        elif self.score_semantics == ScoreSemantics.RANK_PERCENTILE:
+            if not (0.0 <= self.signal_score <= 1.0):
+                raise NumericalValidationError(
+                    f"RANK_PERCENTILE signal_score must be in [0.0, 1.0], got {self.signal_score}"
+                )
 
         validate_timezone_aware(self.evaluation_timestamp, "evaluation_timestamp")
 
         # Horizon validation
         if self.prediction_horizon_bars is not None:
-            if not isinstance(self.prediction_horizon_bars, int) or self.prediction_horizon_bars <= 0:
-                raise ContractValidationError("prediction_horizon_bars must be a positive integer")
+            if isinstance(self.prediction_horizon_bars, bool) or not isinstance(self.prediction_horizon_bars, int) or self.prediction_horizon_bars <= 0:
+                raise ContractValidationError("prediction_horizon_bars must be a positive integer (non-boolean)")
+
+        if not isinstance(self.prediction_horizon_unit, str) or not self.prediction_horizon_unit.strip():
+            raise ContractValidationError("prediction_horizon_unit must be a non-empty string")
 
         # Decimal return and cost estimates validation (dimensionless decimal fraction)
         for name, val in [
@@ -286,10 +310,21 @@ class CandidateSignal:
         if self.uncertainty_penalty is not None and self.uncertainty_penalty < 0.0:
             raise NumericalValidationError(f"uncertainty_penalty cannot be negative: {self.uncertainty_penalty}")
 
-        # Consistency of expected_net_edge if explicitly provided
-        if self.expected_net_edge is not None and self.expected_gross_return is not None and self.trading_cost_estimate is not None:
+        # Strict Net Edge Validation:
+        # If expected_net_edge is explicitly supplied, all 4 components MUST be present.
+        # It is forbidden to supply an explicit net edge with incomplete components (no fabricated zeros).
+        if self.expected_net_edge is not None:
+            if (
+                self.expected_gross_return is None
+                or self.trading_cost_estimate is None
+                or self.execution_friction_estimate is None
+                or self.uncertainty_penalty is None
+            ):
+                raise ContractValidationError(
+                    "Cannot supply explicit expected_net_edge when return, cost, friction, or penalty estimates are incomplete"
+                )
             computed = self.expected_gross_return - (
-                self.trading_cost_estimate + (self.execution_friction_estimate or 0.0) + (self.uncertainty_penalty or 0.0)
+                self.trading_cost_estimate + self.execution_friction_estimate + self.uncertainty_penalty
             )
             if not math.isclose(self.expected_net_edge, computed, rel_tol=1e-6, abs_tol=1e-7):
                 raise ContractValidationError(
@@ -300,14 +335,20 @@ class CandidateSignal:
             raise ContractValidationError(f"Invalid data_quality: {self.data_quality}")
 
     def compute_expected_net_edge(self) -> float | None:
-        """Calculates expected net edge if required return and cost components are present.
+        """Calculates expected net edge if all return and cost components are present.
 
-        Returns None if gross return or cost estimate is unavailable (NO fabricated zeros).
+        Returns None if ANY component is missing (NO fabricated zeros).
+        Formula: expected_gross_return - (trading_cost + execution_friction + uncertainty_penalty)
         """
-        if self.expected_gross_return is None or self.trading_cost_estimate is None:
+        if (
+            self.expected_gross_return is None
+            or self.trading_cost_estimate is None
+            or self.execution_friction_estimate is None
+            or self.uncertainty_penalty is None
+        ):
             return None
         return self.expected_gross_return - (
-            self.trading_cost_estimate + (self.execution_friction_estimate or 0.0) + (self.uncertainty_penalty or 0.0)
+            self.trading_cost_estimate + self.execution_friction_estimate + self.uncertainty_penalty
         )
 
 

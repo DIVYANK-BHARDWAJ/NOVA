@@ -66,7 +66,7 @@ Normalized OHLCV representation of an asset candle.
 
 #### Validation Invariants:
 1. `low <= open <= high` and `low <= close <= high`.
-2. Prices strictly positive (`> 0.0`); volume non-negative (`>= 0.0`).
+2. Prices strictly positive (`> 0.0`); volume non-negative (`>= 0.0`); booleans strictly rejected.
 3. `is_causally_available(as_of: datetime) -> bool`:
    - If `timestamp_semantics == TimestampSemantics.UNKNOWN`, returns `False`.
    - If `available_timestamp is None`, returns `False`.
@@ -83,15 +83,15 @@ Quantitative research hypothesis produced by an individual strategy.
 | `strategy_version` | `str` | SemVer string | Strategy code version (e.g. `"1.0.0"`) |
 | `ticker` | `str` | Non-empty string | Target asset symbol |
 | `direction` | `SignalDirection` | `BULLISH`, `BEARISH`, `NEUTRAL` | Analytical direction (NOT broker order side) |
-| `signal_score` | `float` | Finite numeric | Normalized score (-1.0 to +1.0 or documented range) |
-| `score_semantics` | `ScoreSemantics` | Enum | Meaning of score (`RAW_INTENSITY`, `RANK_DECILE`, `Z_SCORE`) |
+| `signal_score` | `float` | Finite numeric | Bounded or standardized per `score_semantics` |
+| `score_semantics` | `ScoreSemantics` | Enum | Meaning & range (`RAW_INTENSITY` in [-1.0, 1.0], `RANK_DECILE` in [1.0, 10.0], `RANK_PERCENTILE` in [0.0, 1.0], `Z_SCORE`, `EMPIRICAL_EDGE_BPS`, `UNSPECIFIED`) |
 | `evaluation_timestamp`| `datetime` | Timezone-aware UTC | Moment this signal was computed |
-| `prediction_horizon_bars`| `int \| None` | Positive integer | Expected holding duration in bar counts |
-| `prediction_horizon_unit`| `str` | Default `"BARS"` | Time unit for prediction horizon |
+| `prediction_horizon_bars`| `int \| None` | Positive integer (non-boolean) | Expected holding duration in bar counts |
+| `prediction_horizon_unit`| `str` | Default `"BARS"` | Explicit non-empty time unit for prediction horizon |
 | `expected_gross_return` | `float \| None` | Dimensionless decimal fraction | Expected price change (e.g. `+0.0150` = `+1.50%`) |
 | `trading_cost_estimate` | `float \| None` | Dimensionless decimal fraction | Brokerage + exchange fees (e.g. `0.0020` = `20 bps`) |
 | `execution_friction_estimate` | `float \| None` | Dimensionless decimal fraction | Expected slippage / impact (e.g. `0.0010` = `10 bps`) |
-| `uncertainty_penalty` | `float \| None` | Dimensionless decimal fraction | Volatility / parameter uncertainty deduction |
+| `uncertainty_penalty` | `float \| None` | Dimensionless decimal fraction | Volatility / parameter uncertainty deduction (>= 0.0) |
 | `expected_net_edge` | `float \| None` | Dimensionless decimal fraction | Net edge: gross - (cost + friction + penalty) |
 | `data_quality` | `DataQualityStatus` | Enum | Data health classification |
 | `source_event_refs` | `tuple[str, ...]` | Tuple of strings | Input bar / tick IDs used in calculation |
@@ -105,35 +105,8 @@ Quantitative research hypothesis produced by an individual strategy.
 #### Critical Invariants:
 1. **No Execution Capability:** `CandidateSignal` contains zero order IDs, broker transaction types, quantities, account numbers, or execution methods (`submit_order()` does not exist).
 2. **Units Consistency:** All returns and costs are dimensionless decimal return fractions. Monetary fees (e.g., ₹15 flat fee) cannot be directly subtracted without asset price normalization.
-3. **No Fabricated Zeros:** If gross return or cost estimates are unavailable, they remain `None`. `compute_expected_net_edge()` returns `None`.
-
----
-
-### 2.3 `StrategyEvaluation`
-Container representing the complete outcome of a strategy cycle.
-
-| Field Name | Type | Description |
-| :--- | :--- | :--- |
-| `status` | `EvaluationStatus` | `CANDIDATE_PRODUCED`, `ABSTAIN_MARKET_CONDITIONS`, `ABSTAIN_INSUFFICIENT_HISTORY`, `ABSTAIN_UNRELIABLE_DATA`, `EVALUATION_FAILED` |
-| `strategy_id` | `str` | Strategy identifier |
-| `strategy_version` | `str` | Strategy version |
-| `evaluation_timestamp`| `datetime` | Timezone-aware UTC timestamp |
-| `candidate` | `CandidateSignal \| None` | Must be non-None if status is `CANDIDATE_PRODUCED`; must be `None` otherwise |
-| `reason_codes` | `tuple[str, ...]` | Rationale codes for action or abstention |
-| `diagnostics` | `tuple[tuple[str, str], ...]` | Auxiliary debug metadata |
-
----
-
-### 2.4 `RegimeState`
-Provisional representation of market breadth and structural regime.
-
-| Field Name | Type | Description |
-| :--- | :--- | :--- |
-| `regime_label` | `RegimeCategory` | `TRENDING_BULLISH`, `TRENDING_BEARISH`, `HIGH_VOLATILITY_CHOP`, `LOW_VOLATILITY_COMPRESSION`, `UNKNOWN` |
-| `evaluation_timestamp` | `datetime` | Timezone-aware UTC timestamp |
-| `confidence_score` | `float \| None` | Heuristic confidence in range `[0.0, 1.0]` |
-| `supporting_indicators` | `tuple[tuple[str, float], ...]` | Underlying metrics (e.g., `ADX`, `Advance_Decline_Ratio`) |
-| `reason_codes` | `tuple[str, ...]` | Structured rationale codes |
+3. **No Fabricated Zeros for Net Edge:** If ANY of gross return, trading cost, execution friction, or uncertainty penalty is missing, `compute_expected_net_edge()` returns `None`. Supplying an explicit `expected_net_edge` when any component is missing raises `ContractValidationError`.
+4. **Strict Score Semantics Enforced:** `RAW_INTENSITY` is validated in `[-1.0, 1.0]`. `RANK_DECILE` is validated in `[1.0, 10.0]`. `RANK_PERCENTILE` is validated in `[0.0, 1.0]`. Uncalibrated scores must not be represented as probabilities.
 
 ---
 
@@ -146,7 +119,7 @@ Provisional representation of market breadth and structural regime.
 
 ### Review Items for Engineer C (Portfolio & Risk Gateway):
 1. **Candidate Ingestion Interface:** Confirm whether Engineer C will consume candidate signals via in-process queue, Python generator, or inter-process message bus.
-2. **Net Edge vs Raw Intensity:** Confirm whether Engineer C's portfolio optimizer prefers decimal expected net edge (`expected_net_edge`) or ranking deciles (`signal_score`).
+2. **Net Edge vs Raw Intensity:** Confirm whether Engineer C's portfolio optimizer prefers decimal net edge (`expected_net_edge`) or ranking deciles (`signal_score`).
 3. **Abstention Handling:** Confirm that Engineer C interprets missing or abstained candidates as holding current positions (or neutral), never as a forced sell/close.
 
 ### Verification Items for Engineer D (QA & Observability):
