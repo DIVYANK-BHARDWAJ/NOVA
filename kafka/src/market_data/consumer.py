@@ -172,8 +172,63 @@ class MarketDataConsumer:
             logger.warning("Received message on unrecognized topic '%s'. Skipping.", topic)
             return False
 
+    def _handle_preflight_tick(
+        self,
+        payload: dict[str, Any],
+        metadata: KafkaMetadata,
+        topic: str,
+    ) -> bool:
+        """Handle competition pre-flight heartbeat tick and acknowledge sequence ID."""
+        seq = payload.get("seq", 0)
+        logger.info(
+            "Received preflight_tick on %s [%s] offset=%s (seq=%s). Sending heartbeat ACK...",
+            topic,
+            metadata.partition,
+            metadata.offset,
+            seq,
+        )
+        api_url = getattr(self.config, "trading_api_url", "http://192.168.65.157:3002").rstrip("/")
+        heartbeat_endpoint = f"{api_url}/api/v1/bot/heartbeat"
+
+        headers = {"Content-Type": "application/json"}
+        token = getattr(self.config, "bot_access_token", "")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        try:
+            import json
+            import urllib.request
+            req_data = json.dumps({"seq": seq}).encode("utf-8")
+            req = urllib.request.Request(
+                heartbeat_endpoint,
+                data=req_data,
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                logger.info(
+                    "Heartbeat ACK successfully posted to %s for seq=%s (HTTP %s)",
+                    heartbeat_endpoint,
+                    seq,
+                    resp.status,
+                )
+                self.messages_dispatched[topic] += 1
+                return True
+        except Exception as exc:
+            logger.error(
+                "Failed to post heartbeat ACK to %s for seq=%s: %s",
+                heartbeat_endpoint,
+                seq,
+                exc,
+            )
+            return False
+
     def _handle_tick_record(self, payload: dict[str, Any], metadata: KafkaMetadata, topic: str) -> bool:
         """Normalize, validate, and dispatch a market tick message."""
+        event_type = payload.get("event_type") or payload.get("event")
+        if event_type in ("preflight_tick", "heartbeat"):
+            return self._handle_preflight_tick(payload, metadata, topic)
+
         try:
             event = normalize_market_tick(payload, metadata)
         except NormalizationError as exc:
