@@ -18,6 +18,28 @@ except ImportError:  # pragma: no cover
     _DOTENV_AVAILABLE = False
 
 
+def _load_env_file(path: Path) -> None:
+    """Load key-value pairs from .env file into os.environ without overwriting."""
+    if not path.is_file():
+        return
+    if _DOTENV_AVAILABLE:
+        load_dotenv(dotenv_path=path, override=False)
+    else:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k not in os.environ:
+                        os.environ[k] = v
+        except OSError:
+            pass
+
+
 class ConfigValidationError(ValueError):
     """Raised when configuration values are missing, invalid, or malformed."""
     pass
@@ -157,17 +179,17 @@ class KafkaConfig:
         if load_env_file:
             if env_path is not None:
                 path_obj = Path(env_path)
-                if path_obj.is_file() and _DOTENV_AVAILABLE:
-                    load_dotenv(dotenv_path=path_obj, override=False)
+                if path_obj.is_file():
+                    _load_env_file(path_obj)
             else:
                 # Check default locations: current dir .env or kafka/.env
-                if _DOTENV_AVAILABLE:
+                if True:
                     kafka_env = Path("kafka/.env")
                     root_env = Path(".env")
                     if kafka_env.is_file():
-                        load_dotenv(dotenv_path=kafka_env, override=False)
+                        _load_env_file(kafka_env)
                     elif root_env.is_file():
-                        load_dotenv(dotenv_path=root_env, override=False)
+                        _load_env_file(root_env)
 
         bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", DEFAULT_BOOTSTRAP_SERVERS)
         security_protocol = os.getenv("KAFKA_SECURITY_PROTOCOL", DEFAULT_SECURITY_PROTOCOL)
