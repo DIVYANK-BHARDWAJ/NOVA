@@ -607,3 +607,54 @@ def test_consumer_preflight_event_interception_before_normalization():
     assert len(preflight_received) == 2
     assert len(ticks_received) == 1
     assert ticks_received[0].symbol == "ROUT"
+
+
+def test_kafka_partition_failure_isolation_allows_healthy_partitions_to_progress():
+    """Verify that handler failure on one partition isolates only that partition, while healthy partitions commit offsets and progress."""
+    config = KafkaConfig(bootstrap_servers="10.0.0.1:9094", enable_auto_commit=False)
+    mock_client = MagicMock()
+    dispatcher = EventDispatcher()
+
+    # Fail handler on symbol 'BADTICK', succeed on all others
+    def selective_handler(event):
+        if event.symbol == "BADTICK":
+            raise RuntimeError("Deliberate handler failure on BADTICK")
+
+    dispatcher.subscribe_tick(selective_handler)
+
+    # Partition 0: BADTICK (fails)
+    p0_fail_payload = json.dumps({"symbol": "BADTICK", "open": 50.0, "high": 55.0, "low": 48.0, "close": 52.0, "volume": 1000.0}).encode("utf-8")
+    msg_p0_fail = MockKafkaMessage(topic="market.ticks", partition=0, offset=100, value=p0_fail_payload)
+
+    # Partition 0: GOODTICK later on same partition (must NOT commit because partition 0 failed)
+    p0_good_payload = json.dumps({"symbol": "GOODTICK", "open": 100.0, "high": 105.0, "low": 98.0, "close": 102.0, "volume": 2000.0}).encode("utf-8")
+    msg_p0_later = MockKafkaMessage(topic="market.ticks", partition=0, offset=101, value=p0_good_payload)
+
+    # Partition 1: HEALTHY1 (succeeds, MUST commit)
+    p1_payload = json.dumps({"symbol": "HEALTHY1", "open": 200.0, "high": 205.0, "low": 198.0, "close": 202.0, "volume": 3000.0}).encode("utf-8")
+    msg_p1 = MockKafkaMessage(topic="market.ticks", partition=1, offset=200, value=p1_payload)
+
+    # Partition 2: HEALTHY2 (succeeds, MUST commit)
+    p2_payload = json.dumps({"symbol": "HEALTHY2", "open": 300.0, "high": 305.0, "low": 298.0, "close": 302.0, "volume": 4000.0}).encode("utf-8")
+    msg_p2 = MockKafkaMessage(topic="market.ticks", partition=2, offset=300, value=p2_payload)
+
+    mock_client.poll.side_effect = [msg_p0_fail, msg_p0_later, msg_p1, msg_p2, None]
+
+    consumer = MarketDataConsumer(config=config, dispatcher=dispatcher, consumer_factory=lambda _: mock_client)
+    consumer.run(max_messages=4)
+
+    # Inspect all messages passed to client.commit(message=...)
+    committed_messages = [call[1]["message"] for call in mock_client.commit.call_args_list if "message" in call[1]]
+
+    # 1. Failed partition 0 messages must never be committed
+    assert msg_p0_fail not in committed_messages
+    assert msg_p0_later not in committed_messages
+
+    # 2. Healthy partitions 1 and 2 must be committed
+    assert msg_p1 in committed_messages
+    assert msg_p2 in committed_messages
+
+    # 3. Verify internal partition failure tracking
+    assert ("market.ticks", 0) in consumer._failed_partitions
+    assert ("market.ticks", 1) not in consumer._failed_partitions
+    assert ("market.ticks", 2) not in consumer._failed_partitions

@@ -10,7 +10,7 @@ and guarantees compatibility with Person 2's quantitative strategy contracts.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ from market_data.models import KafkaMetadata, MarketTickEvent, MarketNewsEvent
 from market_data.normalizer import normalize_market_tick, normalize_market_news
 from nova.research.adapters import market_tick_to_market_bar
 from nova.research.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
-from nova.quant.contracts import MarketBar
+from nova.quant.contracts import MarketBar, TemporalValidationError
 
 SCHEMA_PATH = Path("schemas/market_event.schema.json")
 
@@ -581,3 +581,148 @@ def test_normalized_definitions_match_models():
     news_dict = norm_news.to_dict()
     errors = validator.validate_subschema(news_dict, news_def)
     assert not errors, f"NormalizedMarketNews validation failed: {errors}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: 12. Simulated Date Fallback in Research Adapter (Regression Tests)
+# ---------------------------------------------------------------------------
+
+def test_market_tick_to_market_bar_with_simulated_date_fallback():
+    """Verify market_tick_to_market_bar parses simulated_date when timestamp=None."""
+    # 1. date object fallback
+    tick_date = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=None,
+        simulated_date=date(2026, 3, 1),
+    )
+    bar_date = market_tick_to_market_bar(tick_date)
+    assert bar_date.ticker == "ROUT"
+    assert bar_date.source_timestamp == datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
+    assert bar_date.available_timestamp == datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    # 2. ISO string YYYY-MM-DD
+    tick_str = MarketTickEvent(
+        symbol="INFY",
+        open=1500.0,
+        high=1520.0,
+        low=1490.0,
+        close=1510.0,
+        volume=20000.0,
+        timestamp=None,
+        simulated_date="2026-03-05",
+    )
+    bar_str = market_tick_to_market_bar(tick_str)
+    assert bar_str.ticker == "INFY"
+    assert bar_str.source_timestamp == datetime(2026, 3, 5, 0, 0, 0, tzinfo=timezone.utc)
+
+    # 3. ISO string with time component
+    tick_iso = MarketTickEvent(
+        symbol="TCS",
+        open=3500.0,
+        high=3550.0,
+        low=3480.0,
+        close=3520.0,
+        volume=15000.0,
+        timestamp=None,
+        simulated_date="2026-03-10T09:15:00Z",
+    )
+    bar_iso = market_tick_to_market_bar(tick_iso)
+    assert bar_iso.source_timestamp == datetime(2026, 3, 10, 9, 15, 0, tzinfo=timezone.utc)
+
+    # 4. Explicit timestamp takes precedence over simulated_date
+    explicit_ts = datetime(2026, 3, 15, 14, 30, 0, tzinfo=timezone.utc)
+    tick_explicit = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=explicit_ts,
+        simulated_date=date(2026, 3, 1),
+    )
+    bar_explicit = market_tick_to_market_bar(tick_explicit)
+    assert bar_explicit.source_timestamp == explicit_ts
+
+    # 5. Duck-typed dictionary with simulated_date
+    dict_tick = {
+        "symbol": "WIPRO",
+        "open": 450.0,
+        "high": 460.0,
+        "low": 445.0,
+        "close": 455.0,
+        "volume": 12000.0,
+        "timestamp": None,
+        "simulated_date": "2026-03-20",
+    }
+    bar_dict = market_tick_to_market_bar(dict_tick)
+    assert bar_dict.ticker == "WIPRO"
+    assert bar_dict.source_timestamp == datetime(2026, 3, 20, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def test_market_tick_to_market_bar_rejects_missing_and_invalid_simulated_date():
+    """Verify rejection of absent or malformed simulated_date when timestamp is missing."""
+    # 1. Missing both timestamp and simulated_date
+    tick_missing = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=None,
+        simulated_date=None,
+    )
+    with pytest.raises(TemporalValidationError) as exc1:
+        market_tick_to_market_bar(tick_missing)
+    assert "no timestamp or simulated_date" in str(exc1.value)
+
+    # 2. Empty string simulated_date
+    tick_empty = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=None,
+        simulated_date="   ",
+    )
+    with pytest.raises(TemporalValidationError) as exc2:
+        market_tick_to_market_bar(tick_empty)
+    assert "cannot be empty" in str(exc2.value)
+
+    # 3. Malformed string simulated_date
+    tick_invalid = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=None,
+        simulated_date="not-a-valid-date",
+    )
+    with pytest.raises(TemporalValidationError) as exc3:
+        market_tick_to_market_bar(tick_invalid)
+    assert "Invalid simulated_date format" in str(exc3.value)
+
+    # 4. Unsupported data type
+    tick_bad_type = MarketTickEvent(
+        symbol="ROUT",
+        open=100.0,
+        high=105.0,
+        low=98.0,
+        close=102.0,
+        volume=50000.0,
+        timestamp=None,
+        simulated_date={"year": 2026},
+    )
+    with pytest.raises(TemporalValidationError) as exc4:
+        market_tick_to_market_bar(tick_bad_type)
+    assert "Unsupported simulated_date type" in str(exc4.value)

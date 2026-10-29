@@ -6,7 +6,7 @@ Kafka market data -> EventDispatcher -> Person 2 Alpha Strategy -> Person 3 Deci
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -434,6 +434,71 @@ class TestEndToEndPipelineIntegration(unittest.TestCase):
         res_flat = self.pipeline.process_candidate_signal(bearish_candidate, bar)
         self.assertIsNone(res_flat)
         self.mock_client.submit_order.assert_not_called()
+
+    def test_pipeline_handles_valid_simulated_date_only_tick(self) -> None:
+        """Verify IntegratedTradingPipeline ingests simulated-date-only MarketTickEvent, enforces chronological monotonicity and drops duplicates."""
+        # 1. Valid tick with timestamp=None and simulated_date as date object
+        tick1 = MarketTickEvent(
+            symbol="INFY",
+            open=1500.0,
+            high=1520.0,
+            low=1490.0,
+            close=1510.0,
+            volume=20000.0,
+            timestamp=None,
+            simulated_date=date(2026, 3, 1),
+        )
+        self.pipeline.handle_market_tick(tick1)
+
+        history = self.pipeline._symbol_history.get("INFY", [])
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].source_timestamp, datetime(2026, 3, 1, 0, 0, 0, tzinfo=timezone.utc))
+        self.assertEqual(history[0].close, 1510.0)
+
+        # 2. Duplicate tick with same simulated_date is cleanly dropped
+        dup_tick = MarketTickEvent(
+            symbol="INFY",
+            open=1505.0,
+            high=1525.0,
+            low=1495.0,
+            close=1515.0,
+            volume=21000.0,
+            timestamp=None,
+            simulated_date=date(2026, 3, 1),
+        )
+        res_dup = self.pipeline.handle_market_tick(dup_tick)
+        self.assertIsNone(res_dup)
+        self.assertEqual(len(self.pipeline._symbol_history["INFY"]), 1)
+
+        # 3. Monotonically advancing tick on next day is accepted
+        tick2 = MarketTickEvent(
+            symbol="INFY",
+            open=1510.0,
+            high=1530.0,
+            low=1500.0,
+            close=1525.0,
+            volume=25000.0,
+            timestamp=None,
+            simulated_date="2026-03-02",
+        )
+        self.pipeline.handle_market_tick(tick2)
+        self.assertEqual(len(self.pipeline._symbol_history["INFY"]), 2)
+        self.assertEqual(self.pipeline._symbol_history["INFY"][1].source_timestamp, datetime(2026, 3, 2, 0, 0, 0, tzinfo=timezone.utc))
+
+        # 4. Tick with missing timestamp AND missing simulated_date is safely dropped without crashing
+        bad_tick = MarketTickEvent(
+            symbol="INFY",
+            open=1525.0,
+            high=1540.0,
+            low=1515.0,
+            close=1535.0,
+            volume=30000.0,
+            timestamp=None,
+            simulated_date=None,
+        )
+        res_bad = self.pipeline.handle_market_tick(bad_tick)
+        self.assertIsNone(res_bad)
+        self.assertEqual(len(self.pipeline._symbol_history["INFY"]), 2)
 
 
 if __name__ == "__main__":

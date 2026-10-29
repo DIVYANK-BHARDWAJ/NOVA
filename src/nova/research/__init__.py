@@ -4,6 +4,7 @@ from nova.research.adapters import (
     generate_synthetic_ohlcv,
     load_market_bars_from_csv,
     market_tick_to_market_bar,
+    parse_simulated_date_to_timestamp,
     parse_timestamp_iso,
     validate_market_bar_sequence,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "generate_synthetic_ohlcv",
     "load_market_bars_from_csv",
     "market_tick_to_market_bar",
+    "parse_simulated_date_to_timestamp",
     "parse_timestamp_iso",
     "validate_market_bar_sequence",
 ]

@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from execution.adapter import ExecutionAdapter
-from execution.accounting import AccountLedger, FullReconciliationReport, PositionLedgerEntry
+from execution.accounting import AccountLedger, FullReconciliationReport, PositionLedgerEntry, UncertainOrderRecord
 from execution.client import (
     AuthenticationError,
     RateLimitError,
@@ -129,6 +129,95 @@ class TestAccountingAndExecutionHardening(unittest.TestCase):
         self.assertAlmostEqual(self.ledger.cash, 929_965.0)
         # Realized PnL is tracked
         self.assertGreater(self.ledger.total_realized_pnl, 0.0)
+
+    def test_partial_fill_followed_by_cancellation(self) -> None:
+        """Verify partial fill followed by cancellation retains filled shares, cash deductions, and resolves order cleanly."""
+        initial_cash = self.ledger.cash
+        self.assertEqual(initial_cash, 1_000_000.0)
+
+        # 1. Step 1: Initial Partial Fill (30 out of 100 shares @ 1000.0, charges 10.0)
+        part1 = OrderResult(
+            client_intent_id="intent_cancel_seq",
+            ticker="INFY",
+            action=OrderAction.BUY,
+            quantity=100,
+            status=OrderStatus.PARTIALLY_FILLED,
+            order_id="ord_pfc_1",
+            execution_price=1000.0,
+            filled_quantity=30,
+            charges=10.0,
+        )
+        self.ledger.process_execution_event(part1)
+
+        self.assertEqual(self.ledger.get_position("INFY"), 30)
+        expected_cash_step1 = initial_cash - (30 * 1000.0) - 10.0
+        self.assertAlmostEqual(self.ledger.cash, expected_cash_step1)
+        self.assertEqual(self.ledger._cumulative_fills_by_intent["intent_cancel_seq"], 30)
+        remaining_qty_step1 = 100 - self.ledger._cumulative_fills_by_intent["intent_cancel_seq"]
+        self.assertEqual(remaining_qty_step1, 70)
+
+        # 2. Step 2: Sequential Partial Fill (incremental 20 shares, cumulative 50 @ 1020.0, charges 8.0)
+        part2 = OrderResult(
+            client_intent_id="intent_cancel_seq",
+            ticker="INFY",
+            action=OrderAction.BUY,
+            quantity=100,
+            status=OrderStatus.PARTIALLY_FILLED,
+            order_id="ord_pfc_1",
+            execution_price=1020.0,
+            filled_quantity=50,  # Cumulative 50 shares
+            charges=8.0,
+        )
+        self.ledger.process_execution_event(part2)
+
+        self.assertEqual(self.ledger.get_position("INFY"), 50)
+        expected_cash_step2 = expected_cash_step1 - (20 * 1020.0) - 8.0
+        self.assertAlmostEqual(self.ledger.cash, expected_cash_step2)
+        self.assertEqual(self.ledger._cumulative_fills_by_intent["intent_cancel_seq"], 50)
+        remaining_qty_step2 = 100 - self.ledger._cumulative_fills_by_intent["intent_cancel_seq"]
+        self.assertEqual(remaining_qty_step2, 50)
+
+        # Register an uncertain order record to verify cancellation resolution
+        self.ledger._uncertain_orders["intent_cancel_seq"] = UncertainOrderRecord(
+            intent_id="intent_cancel_seq",
+            ticker="INFY",
+            action=OrderAction.BUY,
+            quantity=100,
+            timestamp=datetime.now(timezone.utc),
+            rejection_reason="Network disconnect",
+            filled_quantity=50,
+        )
+        self.assertTrue("intent_cancel_seq" in self.ledger._uncertain_orders)
+        self.assertFalse(self.ledger._uncertain_orders["intent_cancel_seq"].is_resolved)
+
+        # 3. Step 3: Cancellation event arrives for this order
+        cancel_evt = OrderResult(
+            client_intent_id="intent_cancel_seq",
+            ticker="INFY",
+            action=OrderAction.BUY,
+            quantity=100,
+            status=OrderStatus.CANCELLED,
+            order_id="ord_pfc_1",
+            execution_price=0.0,
+            filled_quantity=50,
+            charges=0.0,
+        )
+        self.ledger.process_execution_event(cancel_evt)
+
+        # Verify invariant preservation:
+        # - Position remains exactly the 50 filled shares (no rollback)
+        self.assertEqual(self.ledger.get_position("INFY"), 50)
+        # - Cash remains exactly unchanged from step 2 (no double deduction, no phantom refund)
+        self.assertAlmostEqual(self.ledger.cash, expected_cash_step2)
+        # - Cumulative filled quantity remains 50
+        self.assertEqual(self.ledger._cumulative_fills_by_intent["intent_cancel_seq"], 50)
+        # - Remaining 50 shares are permanently cancelled and will never be filled
+        remaining_cancelled = 100 - self.ledger._cumulative_fills_by_intent["intent_cancel_seq"]
+        self.assertEqual(remaining_cancelled, 50)
+        # - Uncertain order is resolved as CANCELLED
+        uncertain_rec = self.ledger._uncertain_orders["intent_cancel_seq"]
+        self.assertTrue(uncertain_rec.is_resolved)
+        self.assertEqual(uncertain_rec.resolved_status, OrderStatus.CANCELLED)
 
     def test_duplicate_execution_events_are_idempotent(self) -> None:
         """Reprocessing the exact same execution event must not double-count cash or positions."""

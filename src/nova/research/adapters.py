@@ -7,7 +7,7 @@ the canonical MarketBar contract, and provides deterministic offline synthetic d
 from __future__ import annotations
 
 import csv
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import math
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -163,6 +163,49 @@ def load_market_bars_from_csv(
     return bars
 
 
+def parse_simulated_date_to_timestamp(value: Any) -> datetime:
+    """Parse supported simulated_date formats and derive a UTC timestamp.
+
+    Supported formats:
+    - datetime.date (converted to UTC midnight)
+    - datetime.datetime (converted or set to UTC)
+    - ISO-8601 string ('YYYY-MM-DD', 'YYYY-MM-DDTHH:MM:SS', etc.)
+
+    Raises:
+        TemporalValidationError: If value is empty, invalid, unparseable, or unsupported.
+    """
+    if value is None:
+        raise TemporalValidationError("simulated_date cannot be None")
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc)
+
+    if isinstance(value, str):
+        val_str = value.strip()
+        if not val_str:
+            raise TemporalValidationError("simulated_date string cannot be empty")
+        clean_str = val_str
+        if clean_str.endswith("Z"):
+            clean_str = clean_str[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(clean_str)
+        except (ValueError, TypeError) as exc:
+            raise TemporalValidationError(f"Invalid simulated_date format: '{value}'") from exc
+
+        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+
+    raise TemporalValidationError(
+        f"Unsupported simulated_date type: {type(value).__name__} (expected date, datetime, or ISO string)"
+    )
+
+
 def market_tick_to_market_bar(
     tick: Any,
     available_timestamp: datetime | None = None,
@@ -173,26 +216,64 @@ def market_tick_to_market_bar(
     Maintains loose coupling with duck-typing support.
     """
     symbol = getattr(tick, "symbol", None)
+    if not symbol and isinstance(tick, dict):
+        symbol = tick.get("symbol") or tick.get("ticker")
     if not symbol:
         raise ContractValidationError("MarketTick has no symbol")
 
     ts = getattr(tick, "timestamp", None)
-    if ts is None:
-        raise TemporalValidationError("MarketTick has no timestamp")
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+    if ts is None and isinstance(tick, dict):
+        ts = tick.get("timestamp")
+
+    if ts is not None:
+        if isinstance(ts, str):
+            ts = parse_timestamp_iso(ts)
+        elif isinstance(ts, datetime):
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            else:
+                ts = ts.astimezone(timezone.utc)
+        elif isinstance(ts, (int, float)):
+            ts_num = float(ts)
+            try:
+                if ts_num > 1e14:
+                    ts = datetime.fromtimestamp(ts_num / 1e6, tz=timezone.utc)
+                elif ts_num > 1e11:
+                    ts = datetime.fromtimestamp(ts_num / 1e3, tz=timezone.utc)
+                else:
+                    ts = datetime.fromtimestamp(ts_num, tz=timezone.utc)
+            except (ValueError, OverflowError, OSError) as exc:
+                raise TemporalValidationError(f"Invalid numeric timestamp: {ts}") from exc
+        else:
+            raise TemporalValidationError(f"Unsupported timestamp type: {type(ts).__name__}")
+    else:
+        # Fallback to simulated_date
+        sim_date = getattr(tick, "simulated_date", None)
+        if sim_date is None and isinstance(tick, dict):
+            sim_date = tick.get("simulated_date")
+        if sim_date is None:
+            raise TemporalValidationError("MarketTick has no timestamp or simulated_date")
+        ts = parse_simulated_date_to_timestamp(sim_date)
 
     avail_ts = available_timestamp or ts
     if avail_ts.tzinfo is None:
         avail_ts = avail_ts.replace(tzinfo=timezone.utc)
+    else:
+        avail_ts = avail_ts.astimezone(timezone.utc)
+
+    open_val = tick["open"] if isinstance(tick, dict) else tick.open
+    high_val = tick["high"] if isinstance(tick, dict) else tick.high
+    low_val = tick["low"] if isinstance(tick, dict) else tick.low
+    close_val = tick["close"] if isinstance(tick, dict) else tick.close
+    vol_val = tick["volume"] if isinstance(tick, dict) else tick.volume
 
     return MarketBar(
         ticker=symbol,
-        open=float(tick.open),
-        high=float(tick.high),
-        low=float(tick.low),
-        close=float(tick.close),
-        volume=float(tick.volume),
+        open=float(open_val),
+        high=float(high_val),
+        low=float(low_val),
+        close=float(close_val),
+        volume=float(vol_val),
         source_timestamp=ts,
         available_timestamp=avail_ts,
         timestamp_semantics=TimestampSemantics.CLOSE_TIME,
