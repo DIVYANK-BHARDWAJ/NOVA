@@ -15,6 +15,8 @@ import uuid
 from typing import Sequence
 
 from nova.decision.contracts import ActionType, OrderType, TradeDecision
+from nova.decision.prediction import BasePredictor, PredictionResult
+from nova.decision.regime import MarketRegimeDetector, MarketRegimeType
 from nova.friction.models import FrictionParameters, MarketFrictionEngine
 from nova.quant.contracts import (
     ContractValidationError,
@@ -38,8 +40,11 @@ class DecisionEngineConfig:
     min_net_edge_bps: float = 1.0             # 1 bp minimum required net edge
     uncertainty_multiplier: float = 0.5       # Uncertainty penalty scaling
     target_exposure: float = 0.20             # Default target exposure fraction (20%)
+    use_regime_weighting: bool = False        # Whether to dynamically weight by regime efficiency ratio
+    predictor_weight: float = 0.0             # Weight of ML return prediction in [0.0, 1.0]
+    min_prediction_confidence: float = 0.5    # Minimum confidence required to incorporate ML prediction
     engine_id: str = "sentinel_decision_engine"
-    engine_version: str = "1.0.0"
+    engine_version: str = "1.1.0"
 
     def __post_init__(self) -> None:
         validate_finite(self.trend_weight, "trend_weight")
@@ -55,6 +60,13 @@ class DecisionEngineConfig:
         if not (0.0 < self.target_exposure <= 1.0):
             raise ContractValidationError(f"target_exposure must be in (0, 1], got {self.target_exposure}")
 
+        validate_finite(self.predictor_weight, "predictor_weight")
+        if not (0.0 <= self.predictor_weight <= 1.0):
+            raise ContractValidationError(f"predictor_weight must be in [0, 1], got {self.predictor_weight}")
+        validate_finite(self.min_prediction_confidence, "min_prediction_confidence")
+        if not (0.0 <= self.min_prediction_confidence <= 1.0):
+            raise ContractValidationError(f"min_prediction_confidence must be in [0, 1], got {self.min_prediction_confidence}")
+
 
 class SentinelDecisionEngine:
     """Core decision intelligence combining signals, friction economics, and risk gates."""
@@ -66,12 +78,16 @@ class SentinelDecisionEngine:
         mean_reversion_strategy: MeanReversionStrategy | None = None,
         friction_engine: MarketFrictionEngine | None = None,
         risk_gate: DeterministicRiskGate | None = None,
+        predictor: BasePredictor | None = None,
+        regime_detector: MarketRegimeDetector | None = None,
     ) -> None:
         self.config = config or DecisionEngineConfig()
         self.trend_strategy = trend_strategy or TrendFollowingStrategy()
         self.mean_reversion_strategy = mean_reversion_strategy or MeanReversionStrategy()
         self.friction_engine = friction_engine or MarketFrictionEngine()
         self.risk_gate = risk_gate or DeterministicRiskGate()
+        self.predictor = predictor
+        self.regime_detector = regime_detector
 
     def evaluate_decision(
         self,
@@ -112,25 +128,61 @@ class SentinelDecisionEngine:
                 current_position=current_position_exposure,
             )
 
-        # 2. Combine Quantitative Signals
+        # 2. Combine Quantitative Signals with Optional Regime Adaptation
         tot_weight = self.config.trend_weight + self.config.mean_reversion_weight
         norm_w_trend = self.config.trend_weight / tot_weight
         norm_w_mr = self.config.mean_reversion_weight / tot_weight
+        regime_high_vol = False
 
-        combined_score = (trend_sig.raw_score * norm_w_trend) + (mr_sig.raw_score * norm_w_mr)
+        if self.config.use_regime_weighting and self.regime_detector is not None:
+            try:
+                regime_out = self.regime_detector.detect_regime(bars)
+                reasons.append(f"REGIME:{regime_out.regime_type.value}_ER_{regime_out.efficiency_ratio:.3f}_TREND_SHARE_{regime_out.trend_share:.3f}")
+                if regime_out.regime_type != MarketRegimeType.UNKNOWN:
+                    norm_w_trend = regime_out.trend_share
+                    norm_w_mr = 1.0 - regime_out.trend_share
+                    if regime_out.is_high_volatility or regime_out.regime_type == MarketRegimeType.HIGH_VOLATILITY:
+                        regime_high_vol = True
+                        reasons.append("REGIME_HIGH_VOLATILITY_UNCERTAINTY_BOOST")
+                else:
+                    reasons.append("REGIME_UNKNOWN_FALLBACK_DEFAULT_WEIGHTS")
+            except Exception as e:
+                reasons.append(f"REGIME_ERROR_FALLBACK_DEFAULT_WEIGHTS:{str(e)}")
 
+        base_score = (trend_sig.raw_score * norm_w_trend) + (mr_sig.raw_score * norm_w_mr)
         gross_trend = trend_sig.expected_gross_return or 0.0
         gross_mr = mr_sig.expected_gross_return or 0.0
-        expected_gross = (gross_trend * norm_w_trend) + (gross_mr * norm_w_mr)
+        base_gross = (gross_trend * norm_w_trend) + (gross_mr * norm_w_mr)
+
+        # 3. Integrate Causal Return Prediction with Safe Fallback
+        combined_score = base_score
+        expected_gross = base_gross
+
+        if self.predictor is not None and self.config.predictor_weight > 0.0:
+            try:
+                pred = self.predictor.predict(bars)
+                if pred.is_fallback:
+                    reasons.append("PREDICTOR_FALLBACK_TO_BASELINE")
+                elif pred.confidence < self.config.min_prediction_confidence:
+                    reasons.append(f"PREDICTOR_LOW_CONFIDENCE_{pred.confidence:.2f}_FALLBACK_TO_BASELINE")
+                else:
+                    pw = self.config.predictor_weight
+                    pred_score = math.tanh(pred.expected_return * 50.0)
+                    combined_score = ((1.0 - pw) * base_score) + (pw * pred_score)
+                    expected_gross = ((1.0 - pw) * base_gross) + (pw * pred.expected_return)
+                    reasons.append(f"PREDICTOR_ACTIVE_PW_{pw:.2f}_RET_{pred.expected_return:.5f}_CONF_{pred.confidence:.2f}")
+            except Exception as e:
+                reasons.append(f"PREDICTOR_ERROR_FALLBACK_TO_BASELINE:{str(e)}")
 
         # Volatility & Uncertainty Penalty
         vol_est = max(
             trend_sig.volatility_estimate or 0.01,
             mr_sig.volatility_estimate or 0.01,
         )
-        uncertainty_penalty = self.config.uncertainty_multiplier * vol_est
+        unc_mult = self.config.uncertainty_multiplier * (1.5 if regime_high_vol else 1.0)
+        uncertainty_penalty = unc_mult * vol_est
 
-        # 3. Market Friction & Break-Even Calculation
+        # 4. Market Friction & Break-Even Calculation
         all_in_cost = self.friction_engine.calculate_all_in_cost(is_roundtrip=True)
         prob_clearing = self.friction_engine.estimate_probability_of_clearing_costs(
             expected_gross_return=expected_gross,
@@ -144,7 +196,7 @@ class SentinelDecisionEngine:
         reasons.append(f"COMBINED_SCORE_{combined_score:.3f}")
         reasons.append(f"EXPECTED_GROSS_{expected_gross:.5f}_COST_{all_in_cost:.5f}_NET_{expected_net:.5f}_UTILITY_{expected_utility:.5f}")
 
-        # 4. Action Selection Logic
+        # 5. Action Selection Logic
         candidate_action: ActionType
         candidate_exposure: float
 
@@ -190,7 +242,7 @@ class SentinelDecisionEngine:
                 candidate_exposure = 0.0
                 reasons.append("NO_SUFFICIENT_NET_EDGE_NO_TRADE")
 
-        # 5. Deterministic Risk Gate Evaluation
+        # 6. Deterministic Risk Gate Evaluation
         risk_result = self.risk_gate.evaluate(
             proposed_action=candidate_action,
             proposed_exposure=candidate_exposure,
@@ -209,6 +261,20 @@ class SentinelDecisionEngine:
         final_exposure = risk_result.authorized_exposure
         order_type = OrderType.MARKET if final_action in (ActionType.BUY, ActionType.SELL, ActionType.EXIT, ActionType.REDUCE) else OrderType.NONE
 
+        model_versions_list = [
+            ("trend_following", self.trend_strategy.config.strategy_id),
+            ("mean_reversion", self.mean_reversion_strategy.config.strategy_id),
+            ("risk_gate", self.risk_gate.config.config_version),
+        ]
+        if self.regime_detector is not None:
+            r_cfg = getattr(self.regime_detector, "config", None)
+            r_ver = getattr(r_cfg, "config_version", "1.0.0") if r_cfg else "1.0.0"
+            model_versions_list.append(("regime_detector", r_ver))
+        if self.predictor is not None:
+            p_cfg = getattr(self.predictor, "config", None)
+            p_ver = getattr(p_cfg, "model_version", "1.0.0") if p_cfg else getattr(self.predictor, "model_version", "1.0.0")
+            model_versions_list.append(("ml_predictor", p_ver))
+
         return TradeDecision(
             decision_id=f"dec_{uuid.uuid4().hex[:12]}",
             decision_timestamp=as_of,
@@ -225,11 +291,7 @@ class SentinelDecisionEngine:
             probability_of_clearing_costs=prob_clearing,
             uncertainty_estimate=uncertainty_penalty,
             estimated_risk_contribution=abs(final_exposure) * vol_est,
-            model_versions=(
-                ("trend_following", self.trend_strategy.config.strategy_id),
-                ("mean_reversion", self.mean_reversion_strategy.config.strategy_id),
-                ("risk_gate", self.risk_gate.config.config_version),
-            ),
+            model_versions=tuple(model_versions_list),
         )
 
     def _build_abstain_decision(

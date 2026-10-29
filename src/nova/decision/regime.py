@@ -209,3 +209,6 @@ class MarketRegimeDetector:
             confidence=confidence,
             reason_codes=tuple(reasons),
         )
+
+    # Friendly alias
+    detect_regime = detect

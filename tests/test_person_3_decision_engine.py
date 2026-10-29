@@ -151,6 +151,112 @@ class TestSentinelDecisionEngine(unittest.TestCase):
         self.assertEqual(decision.selected_action, ActionType.NO_TRADE)
         self.assertEqual(decision.order_type, OrderType.NONE)
 
+    def test_regime_weighting_integration(self) -> None:
+        from nova.decision.regime import MarketRegimeDetector, RegimeConfig
+        # Trending prices
+        prices = [100.0 + (i * 2.0) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        regime_detector = MarketRegimeDetector(RegimeConfig(er_window=10))
+        cfg = DecisionEngineConfig(use_regime_weighting=True)
+        engine = SentinelDecisionEngine(config=cfg, regime_detector=regime_detector)
+
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+        self.assertEqual(decision.selected_action, ActionType.BUY)
+        self.assertTrue(any("REGIME:TRENDING" in r for r in decision.selection_or_rejection_reasons))
+        self.assertTrue(any("regime_detector" == m[0] for m in decision.model_versions))
+
+    def test_regime_fallback_on_insufficient_bars(self) -> None:
+        from nova.decision.regime import MarketRegimeDetector
+        prices = [100.0 + (i * 0.1) for i in range(5)]
+        bars = create_synthetic_bars(prices)
+
+        regime_detector = MarketRegimeDetector()
+        cfg = DecisionEngineConfig(use_regime_weighting=True)
+        engine = SentinelDecisionEngine(config=cfg, regime_detector=regime_detector)
+
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+        self.assertEqual(decision.selected_action, ActionType.NO_TRADE)
+
+    def test_ml_prediction_active_integration(self) -> None:
+        from nova.decision.prediction import BasePredictor, PredictionResult
+        prices = [100.0 + (i * 1.5) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        class MockPredictor(BasePredictor):
+            def predict(self, b):
+                return PredictionResult(
+                    expected_return=0.02,
+                    directional_probability=0.85,
+                    confidence=0.90,
+                    horizon_bars=1,
+                    timestamp=b[-1].source_timestamp,
+                    model_id="mock_model",
+                    model_version="1.0.0",
+                    is_fallback=False,
+                )
+
+        cfg = DecisionEngineConfig(predictor_weight=0.3, min_prediction_confidence=0.5)
+        engine = SentinelDecisionEngine(config=cfg, predictor=MockPredictor())
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+
+        self.assertEqual(decision.selected_action, ActionType.BUY)
+        self.assertTrue(any("PREDICTOR_ACTIVE" in r for r in decision.selection_or_rejection_reasons))
+        self.assertTrue(any("ml_predictor" == m[0] for m in decision.model_versions))
+
+    def test_ml_prediction_fallback_on_low_confidence(self) -> None:
+        from nova.decision.prediction import BasePredictor, PredictionResult
+        prices = [100.0 + (i * 1.5) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        class LowConfPredictor(BasePredictor):
+            def predict(self, b):
+                return PredictionResult(
+                    expected_return=-0.05,
+                    directional_probability=0.20,
+                    confidence=0.30,  # Below 0.50 threshold
+                    horizon_bars=1,
+                    timestamp=b[-1].source_timestamp,
+                    model_id="mock_model",
+                    model_version="1.0.0",
+                    is_fallback=False,
+                )
+
+        cfg = DecisionEngineConfig(predictor_weight=0.5, min_prediction_confidence=0.50)
+        engine = SentinelDecisionEngine(config=cfg, predictor=LowConfPredictor())
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+
+        # Still BUY because baseline strategy is bullish and low-confidence prediction was safely ignored
+        self.assertEqual(decision.selected_action, ActionType.BUY)
+        self.assertTrue(any("PREDICTOR_LOW_CONFIDENCE" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_ml_prediction_fallback_on_exception(self) -> None:
+        from nova.decision.prediction import BasePredictor
+        prices = [100.0 + (i * 1.5) for i in range(40)]
+        bars = create_synthetic_bars(prices)
+
+        class FailingPredictor(BasePredictor):
+            def predict(self, b):
+                raise RuntimeError("Predictor internal failure")
+
+        cfg = DecisionEngineConfig(predictor_weight=0.5)
+        engine = SentinelDecisionEngine(config=cfg, predictor=FailingPredictor())
+        decision = engine.evaluate_decision(bars, current_position_exposure=0.0)
+
+        # Baseline trend following handles it safely
+        self.assertEqual(decision.selected_action, ActionType.BUY)
+        self.assertTrue(any("PREDICTOR_ERROR_FALLBACK" in r for r in decision.selection_or_rejection_reasons))
+
+    def test_decision_engine_config_validation(self) -> None:
+        with self.assertRaises(ContractValidationError):
+            DecisionEngineConfig(trend_weight=-0.1)
+        with self.assertRaises(ContractValidationError):
+            DecisionEngineConfig(target_exposure=1.5)
+        with self.assertRaises(ContractValidationError):
+            DecisionEngineConfig(predictor_weight=1.5)
+        with self.assertRaises(ContractValidationError):
+            DecisionEngineConfig(min_prediction_confidence=1.2)
+
 
 if __name__ == "__main__":
     unittest.main()
