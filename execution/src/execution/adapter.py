@@ -43,6 +43,7 @@ class ExecutionAdapter:
         client: TradingApiClient,
         config: ExecutionConfig,
         on_execution_event: Optional[Callable[[ExecutionEvent], None]] = None,
+        ledger: Optional[Any] = None,
     ) -> None:
         """Initialize ExecutionAdapter.
 
@@ -50,10 +51,12 @@ class ExecutionAdapter:
             client: TradingApiClient instance.
             config: ExecutionConfig instance.
             on_execution_event: Optional callback for execution event dispatch.
+            ledger: Optional AccountLedger instance for stateful position/cash tracking.
         """
         self.client = client
         self.config = config
         self.on_execution_event = on_execution_event
+        self.ledger = ledger
 
         # Caching for simulation stage and stock universe
         self._cached_stage: Optional[SimulationStage] = None
@@ -69,13 +72,33 @@ class ExecutionAdapter:
         self._known_order_ids: set[str] = set()
 
     def _emit_event(self, event_type: str, result: OrderResult) -> None:
-        """Dispatch execution event to registered listener."""
+        """Dispatch execution event to registered listener and account ledger."""
+        if self.ledger is not None:
+            try:
+                self.ledger.process_execution_event(result)
+            except Exception as exc:
+                logger.error("Exception in ledger event processing: %s", exc)
+
         if self.on_execution_event is not None:
             try:
                 event = ExecutionEvent(event_type=event_type, order_result=result)
                 self.on_execution_event(event)
             except Exception as exc:
                 logger.error("Exception in execution event callback: %s", exc)
+
+    def reconcile_accounting(self, tolerance: float = 0.01) -> Optional[Any]:
+        """Perform end-to-end reconciliation between local ledger and platform Trading API.
+
+        Args:
+            tolerance: Allowed decimal variance for cash rounding.
+
+        Returns:
+            FullReconciliationReport if ledger is attached, else None.
+        """
+        if self.ledger is None:
+            logger.warning("reconcile_accounting called, but no AccountLedger is attached to adapter.")
+            return None
+        return self.ledger.reconcile(client=self.client, tolerance=tolerance)
 
     def invalidate_stage_cache(self) -> None:
         """Explicitly invalidate the simulation stage cache.
