@@ -50,6 +50,7 @@ class DispatcherMetrics:
 
     ticks_dispatched: int = 0
     news_dispatched: int = 0
+    preflight_dispatched: int = 0
     handler_errors: int = 0
     dropped_events: int = 0
 
@@ -57,6 +58,7 @@ class DispatcherMetrics:
         return {
             "ticks_dispatched": self.ticks_dispatched,
             "news_dispatched": self.news_dispatched,
+            "preflight_dispatched": self.preflight_dispatched,
             "handler_errors": self.handler_errors,
             "dropped_events": self.dropped_events,
         }
@@ -76,6 +78,7 @@ class EventDispatcher:
     def __init__(self) -> None:
         self._tick_handlers: list[TickHandlerType] = []
         self._news_handlers: list[NewsHandlerType] = []
+        self._preflight_handlers: list[Callable[[dict[str, Any]], None]] = []
         self._metrics = DispatcherMetrics()
 
     @property
@@ -92,6 +95,22 @@ class EventDispatcher:
     def news_handlers(self) -> list[NewsHandlerType]:
         """Return copy of registered news handlers."""
         return list(self._news_handlers)
+
+    @property
+    def preflight_handlers(self) -> list[Callable[[dict[str, Any]], None]]:
+        """Return copy of registered preflight handlers."""
+        return list(self._preflight_handlers)
+
+    def subscribe_preflight(self, handler: Callable[[dict[str, Any]], None]) -> None:
+        """Register a handler for preflight heartbeat events."""
+        if handler not in self._preflight_handlers:
+            self._preflight_handlers.append(handler)
+            logger.debug("Registered preflight handler: %s", getattr(handler, "__name__", repr(handler)))
+
+    def unsubscribe_preflight(self, handler: Callable[[dict[str, Any]], None]) -> None:
+        """Unregister a preflight handler."""
+        if handler in self._preflight_handlers:
+            self._preflight_handlers.remove(handler)
 
     def subscribe_tick(self, handler: TickHandlerType) -> None:
         """Register a handler for validated market tick events."""
@@ -174,6 +193,33 @@ class EventDispatcher:
                 )
 
         self._metrics.news_dispatched += 1
+        return success_count
+
+    def dispatch_preflight(self, event: dict[str, Any]) -> int:
+        """Dispatch a preflight heartbeat event to registered handlers.
+
+        Returns:
+            Number of successfully executed handlers.
+        """
+        success_count = 0
+        for handler in self._preflight_handlers:
+            try:
+                if hasattr(handler, "handle_event") and callable(getattr(handler, "handle_event")):
+                    handler.handle_event(event)
+                elif hasattr(handler, "handle_preflight") and callable(getattr(handler, "handle_preflight")):
+                    handler.handle_preflight(event)
+                elif callable(handler):
+                    handler(event)
+                else:
+                    logger.error("Preflight handler %r is not callable", handler)
+                    self._metrics.handler_errors += 1
+                    continue
+                success_count += 1
+            except Exception as exc:
+                self._metrics.handler_errors += 1
+                logger.error("Error executing preflight handler %r: %s", handler, exc, exc_info=True)
+
+        self._metrics.preflight_dispatched += 1
         return success_count
 
 

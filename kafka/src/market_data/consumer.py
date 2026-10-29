@@ -60,12 +60,17 @@ class MarketDataConsumer:
         self.validation_errors: dict[str, int] = collections.defaultdict(int)
         self.kafka_errors: int = 0
         self._failed_partitions: set[tuple[str, int]] = set()
-
+        self.assigned_partitions: list[Any] = []
 
     @property
     def is_running(self) -> bool:
         """Return running status of consumer loop."""
         return self._running
+
+    @property
+    def is_connected(self) -> bool:
+        """Return True if consumer is active and assigned partitions."""
+        return self._running and (len(self.assigned_partitions) > 0 or self._consumer is not None)
 
     def _create_kafka_consumer(self) -> Any:
         """Instantiate Kafka consumer client."""
@@ -163,7 +168,18 @@ class MarketDataConsumer:
             logger.warning("Failed to decode message on topic '%s': %s", topic, exc)
             return False
 
-        # 2. Topic Routing, Normalization & Validation
+        # 2. Preflight / Heartbeat Event Detection
+        ev_type = str(payload.get("event_type") or payload.get("event") or payload.get("type") or "").strip().lower()
+        is_preflight = (
+            ev_type.startswith("preflight")
+            or "heartbeat" in ev_type
+            or ("seq" in payload and "open" not in payload)
+            or ("seq" in payload and "data" in payload and isinstance(payload.get("data"), dict) and payload.get("data", {}).get("status") == "STANDBY")
+        )
+        if is_preflight:
+            return self._handle_preflight_record(payload, metadata, topic)
+
+        # 3. Topic Routing, Normalization & Validation
         if topic == self.config.topic_ticks:
             return self._handle_tick_record(payload, metadata, topic)
         elif topic == self.config.topic_news:
@@ -171,6 +187,19 @@ class MarketDataConsumer:
         else:
             logger.warning("Received message on unrecognized topic '%s'. Skipping.", topic)
             return False
+
+    def _handle_preflight_record(self, payload: dict[str, Any], metadata: KafkaMetadata, topic: str) -> bool:
+        """Process and dispatch preflight tick/news events for heartbeat acknowledgement."""
+        seq = (
+            payload.get("seq")
+            or payload.get("sequence")
+            or (payload.get("data", {}) or {}).get("seq")
+            or (payload.get("data", {}) or {}).get("sequence")
+        )
+        logger.info("Preflight event received on %s [%s:%s]: seq=%s", topic, metadata.partition, metadata.offset, seq)
+        self.dispatcher.dispatch_preflight(payload)
+        self.messages_dispatched[topic] += 1
+        return True
 
     def _handle_tick_record(self, payload: dict[str, Any], metadata: KafkaMetadata, topic: str) -> bool:
         """Normalize, validate, and dispatch a market tick message."""
@@ -239,6 +268,7 @@ class MarketDataConsumer:
         )
 
         def _on_partitions_assigned(c: Any, partitions: list[Any]) -> None:
+            self.assigned_partitions = list(partitions)
             logger.info("Partition rebalance: Assigned %d partition(s): %s", len(partitions), partitions)
 
         def _on_partitions_revoked(c: Any, partitions: list[Any]) -> None:
@@ -247,6 +277,10 @@ class MarketDataConsumer:
                 t = getattr(p, "topic", "")
                 pid = getattr(p, "partition", -1)
                 self._failed_partitions.discard((t, pid))
+            self.assigned_partitions = [
+                p for p in self.assigned_partitions
+                if not (getattr(p, "topic", "") == getattr(p, "topic", None) and getattr(p, "partition", -1) in [getattr(rev, "partition", -1) for rev in partitions])
+            ]
 
         try:
             self._consumer.subscribe(

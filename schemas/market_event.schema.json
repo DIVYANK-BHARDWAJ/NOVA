@@ -1,0 +1,666 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nova.manthan2026.internal/schemas/market_event.schema.json",
+  "title": "MarketEvent",
+  "description": "Canonical schema for market events ingested from Kafka topics (market.ticks and market.news) in MANTHAN 2026, establishing a shared contract between Person 1 (Kafka Ingestion), Person 2 (Quant Strategy), and Person 3 (Risk Gateway).",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/PriceTickNested"
+    },
+    {
+      "$ref": "#/definitions/PriceTickFlat"
+    },
+    {
+      "$ref": "#/definitions/NewsFlashNested"
+    },
+    {
+      "$ref": "#/definitions/NewsFlashFlat"
+    },
+    {
+      "$ref": "#/definitions/PreflightHeartbeat"
+    }
+  ],
+  "definitions": {
+    "PriceTickNested": {
+      "type": "object",
+      "description": "MANTHAN 2026 competition nested market tick format received on market.ticks topic.",
+      "required": [
+        "event_type",
+        "data"
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "price_tick"
+          ],
+          "description": "Explicit discriminator for market price tick events."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Feed emission or broker timestamp as ISO-8601 string or numeric epoch timestamp."
+        },
+        "simulated_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Historical market simulation date (e.g. '2024-10-25'). Distinct from feed emission timestamp."
+        },
+        "data": {
+          "$ref": "#/definitions/NestedTickData"
+        },
+        "sig": {
+          "type": "string",
+          "description": "Cryptographic HMAC/SHA256 signature from the platform exchange."
+        },
+        "sandbox": {
+          "type": "object",
+          "description": "Competition sandbox runtime status and stage metadata.",
+          "properties": {
+            "is_sandbox": {
+              "type": "boolean"
+            },
+            "stage": {
+              "type": "string"
+            }
+          }
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        }
+      },
+      "not": {
+        "required": [
+          "seq"
+        ]
+      }
+    },
+    "NestedTickData": {
+      "type": "object",
+      "description": "Nested OHLCV price and volume payload for market tick events.",
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "ticker"
+          ]
+        },
+        {
+          "required": [
+            "symbol"
+          ]
+        }
+      ],
+      "properties": {
+        "ticker": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stock ticker identifier (e.g. 'ROUT', 'TCS')."
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Alternative ticker identifier alias."
+        },
+        "open": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle opening price in positive currency units."
+        },
+        "high": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle highest price in positive currency units."
+        },
+        "low": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle lowest price in positive currency units."
+        },
+        "close": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle closing price in positive currency units."
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Traded share volume (non-negative number)."
+        }
+      }
+    },
+    "PriceTickFlat": {
+      "type": "object",
+      "description": "Flat candlestick tick payload format supported by normalizer and producer adapters.",
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "symbol"
+          ]
+        },
+        {
+          "required": [
+            "ticker"
+          ]
+        }
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "price_tick"
+          ],
+          "description": "Optional event type indicator."
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ticker symbol identifier."
+        },
+        "ticker": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Ticker alias identifier."
+        },
+        "open": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle opening price (> 0)."
+        },
+        "high": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle highest price (> 0)."
+        },
+        "low": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle lowest price (> 0)."
+        },
+        "close": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle closing price (> 0)."
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Traded volume (>= 0)."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Feed emission or broker timestamp."
+        },
+        "simulated_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Historical market simulation date."
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "seq"
+            ]
+          },
+          {
+            "required": [
+              "headline"
+            ]
+          }
+        ]
+      }
+    },
+    "NewsFlashNested": {
+      "type": "object",
+      "description": "MANTHAN 2026 competition nested market news format received on market.news topic.",
+      "required": [
+        "event_type",
+        "data"
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "news_flash"
+          ],
+          "description": "Explicit discriminator for market news flash events."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Feed emission timestamp as ISO-8601 string or epoch timestamp."
+        },
+        "simulated_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Historical market simulation date."
+        },
+        "data": {
+          "$ref": "#/definitions/NestedNewsData"
+        },
+        "sandbox": {
+          "type": "object",
+          "description": "Competition sandbox status metadata."
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        }
+      },
+      "not": {
+        "required": [
+          "seq"
+        ]
+      }
+    },
+    "NestedNewsData": {
+      "type": "object",
+      "description": "Nested headline and story payload for market news events.",
+      "anyOf": [
+        {
+          "required": [
+            "headline"
+          ]
+        },
+        {
+          "required": [
+            "title"
+          ]
+        }
+      ],
+      "properties": {
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "description": "News announcement headline or text."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Headline title alias."
+        },
+        "ticker": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Affected ticker symbol, or null for macroeconomic news."
+        },
+        "symbol": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Affected symbol alias."
+        },
+        "description": {
+          "type": "string",
+          "description": "Extended article or release description."
+        },
+        "date": {
+          "type": "string",
+          "description": "Reported publication date."
+        }
+      }
+    },
+    "NewsFlashFlat": {
+      "type": "object",
+      "description": "Flat corporate or macroeconomic news event payload.",
+      "anyOf": [
+        {
+          "required": [
+            "headline"
+          ]
+        },
+        {
+          "required": [
+            "title"
+          ]
+        }
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "news_flash"
+          ],
+          "description": "Optional event type indicator."
+        },
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "description": "News headline or announcement."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Headline alias."
+        },
+        "symbol": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Ticker symbol, or null for macroeconomic announcements."
+        },
+        "ticker": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Ticker alias."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Publication or feed timestamp."
+        },
+        "source": {
+          "type": "string",
+          "description": "News wire or reporting agency source."
+        },
+        "urgency": {
+          "type": "string",
+          "description": "Reporting urgency level (e.g. 'HIGH', 'LOW')."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed story body."
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "open"
+            ]
+          },
+          {
+            "required": [
+              "seq"
+            ]
+          }
+        ]
+      }
+    },
+    "PreflightHeartbeat": {
+      "type": "object",
+      "description": "Platform pre-flight verification ping or heartbeat event carrying a sequence identifier without OHLCV pricing.",
+      "anyOf": [
+        {
+          "required": [
+            "event_type"
+          ],
+          "properties": {
+            "event_type": {
+              "type": "string",
+              "enum": [
+                "preflight_tick",
+                "preflight_news",
+                "preflight",
+                "heartbeat"
+              ]
+            }
+          }
+        },
+        {
+          "required": [
+            "seq"
+          ]
+        },
+        {
+          "required": [
+            "sequence"
+          ]
+        }
+      ],
+      "properties": {
+        "event_type": {
+          "type": "string",
+          "description": "Lifecycle or heartbeat event type."
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Genuine sequence identifier to acknowledge to the platform heartbeat endpoint."
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sequence identifier alias."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Pre-flight or heartbeat timestamp."
+        },
+        "data": {
+          "type": "object",
+          "description": "Preflight auxiliary data payload (e.g. status='STANDBY').",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sequence": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        }
+      },
+      "not": {
+        "required": [
+          "open",
+          "close"
+        ]
+      }
+    },
+    "NormalizedMarketTick": {
+      "type": "object",
+      "description": "Normalized market tick domain event (MarketTickEvent) emitted by Person 1's normalizer for consumption by Person 2's strategy and Person 3's risk gateway.",
+      "required": [
+        "symbol",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical uppercase stock ticker symbol."
+        },
+        "open": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle opening price (> 0)."
+        },
+        "high": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle highest price (> 0)."
+        },
+        "low": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle lowest price (> 0)."
+        },
+        "close": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Candle closing price (> 0)."
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Candle traded share volume (>= 0)."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp string."
+        },
+        "simulated_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "Historical market simulation date string (YYYY-MM-DD)."
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        },
+        "extra": {
+          "type": "object",
+          "description": "Unmapped candidate fields preserved for downstream analysis."
+        }
+      }
+    },
+    "NormalizedMarketNews": {
+      "type": "object",
+      "description": "Normalized market news domain event (MarketNewsEvent) emitted by Person 1's normalizer.",
+      "required": [
+        "headline"
+      ],
+      "properties": {
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "description": "News announcement headline or summary."
+        },
+        "symbol": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Ticker symbol, or null if macroeconomic announcement."
+        },
+        "timestamp": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp string."
+        },
+        "simulated_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "Historical market simulation date string (YYYY-MM-DD)."
+        },
+        "news_date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "Publication date string (YYYY-MM-DD)."
+        },
+        "metadata": {
+          "$ref": "#/definitions/KafkaMetadata"
+        },
+        "extra": {
+          "type": "object",
+          "description": "Unmapped candidate fields preserved for downstream analysis."
+        }
+      }
+    },
+    "KafkaMetadata": {
+      "type": "object",
+      "description": "Kafka transport metadata extracted from the underlying record.",
+      "required": [
+        "topic"
+      ],
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "Originating Kafka topic name (e.g. 'market.ticks' or 'market.news')."
+        },
+        "partition": {
+          "type": "integer",
+          "description": "Kafka partition index."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Kafka message offset."
+        },
+        "timestamp_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Broker epoch timestamp in milliseconds."
+        },
+        "timestamp_type": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Kafka timestamp type indicator."
+        }
+      }
+    }
+  }
+}

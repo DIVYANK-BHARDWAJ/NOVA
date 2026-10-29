@@ -555,4 +555,55 @@ def test_malformed_poison_pill_commits_in_manual_mode_to_prevent_infinite_loop()
     assert mock_client.commit.call_args[1]["message"] == bad_json_msg
 
 
+def test_consumer_preflight_event_interception_before_normalization():
+    """Verify preflight events with sequence numbers are intercepted before OHLCV normalization."""
+    config = KafkaConfig(bootstrap_servers="10.0.0.1:9094")
+    dispatcher = EventDispatcher()
 
+    preflight_received = []
+    ticks_received = []
+
+    dispatcher.subscribe_preflight(lambda payload: preflight_received.append(payload))
+    dispatcher.subscribe_tick(lambda tick: ticks_received.append(tick))
+
+    consumer = MarketDataConsumer(config=config, dispatcher=dispatcher)
+
+    # 1. Preflight tick with seq=54 (missing 'open' - would fail tick normalization if not intercepted)
+    msg1 = MockKafkaMessage(
+        topic="market.ticks",
+        value=json.dumps({"event_type": "preflight_tick", "seq": 54, "timestamp": "2026-03-25T10:00:00Z"}).encode(),
+    )
+    res1 = consumer.process_raw_message(msg1)
+    assert res1 is True
+    assert len(preflight_received) == 1
+    assert preflight_received[0]["seq"] == 54
+    assert len(ticks_received) == 0
+
+    # 2. Standby event with seq=1041 (missing 'open' - must be intercepted)
+    msg2 = MockKafkaMessage(
+        topic="market.ticks",
+        value=json.dumps({"seq": 1041, "data": {"status": "STANDBY"}}).encode(),
+    )
+    res2 = consumer.process_raw_message(msg2)
+    assert res2 is True
+    assert len(preflight_received) == 2
+    assert preflight_received[1]["seq"] == 1041
+    assert len(ticks_received) == 0
+
+    # 3. Standard market tick (must NOT be intercepted by preflight, must reach ticks_received)
+    msg3 = MockKafkaMessage(
+        topic="market.ticks",
+        value=json.dumps({
+            "symbol": "ROUT",
+            "open": 100.0,
+            "high": 105.0,
+            "low": 98.0,
+            "close": 102.0,
+            "volume": 50000.0,
+        }).encode(),
+    )
+    res3 = consumer.process_raw_message(msg3)
+    assert res3 is True
+    assert len(preflight_received) == 2
+    assert len(ticks_received) == 1
+    assert ticks_received[0].symbol == "ROUT"

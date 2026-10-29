@@ -107,8 +107,53 @@ def main() -> int:
     dispatcher.subscribe_tick(DiagnosticLoggingTickHandler())
     dispatcher.subscribe_news(DiagnosticLoggingNewsHandler())
 
+    heartbeat_worker = None
+    lifecycle_monitor = None
+    try:
+        from execution.config import ExecutionConfig
+        from execution.client import TradingApiClient
+        from execution.heartbeat import HeartbeatWorker
+        from execution.lifecycle import LifecycleMonitor
+
+        ex_config = ExecutionConfig.load_from_env(env_path)
+        client = TradingApiClient(ex_config)
+
+        # 4a. Initialize & Start Preflight Heartbeat Worker
+        heartbeat_worker = HeartbeatWorker(client=client)
+        heartbeat_worker.start()
+        dispatcher.subscribe_preflight(heartbeat_worker.handle_event)
+        dispatcher.subscribe_tick(heartbeat_worker.handle_event)
+        dispatcher.subscribe_news(heartbeat_worker.handle_event)
+        logger.info("HeartbeatWorker successfully started and registered to event dispatcher.")
+
+        # 4b. Initialize & Start Simulation Lifecycle Monitor
+        lifecycle_monitor = LifecycleMonitor(
+            client=client,
+            poll_interval_seconds=3.0,
+            heartbeat_worker=heartbeat_worker,
+        )
+        lifecycle_monitor.start()
+        logger.info("LifecycleMonitor successfully started and polling /api/v1/stage and /api/v1/simulation/clock.")
+
+        # 4c. Register Quantitative Alpha Strategy (Person 2)
+        try:
+            from nova.research.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
+            from nova.research.kafka_connector import KafkaStrategyConnector
+
+            strategy = EMACrossoverStrategy(EMACrossoverConfig(fast_window=12, slow_window=26))
+            connector = KafkaStrategyConnector(strategy=strategy)
+            dispatcher.subscribe_tick(connector.handle_market_tick)
+            logger.info("Person 2 EMACrossoverStrategy registered to EventDispatcher via KafkaStrategyConnector.")
+        except Exception as exc:
+            logger.debug("Person 2 strategy connector not loaded: %s", exc)
+
+    except Exception as exc:
+        logger.warning("Execution/Lifecycle components not initialized: %s", exc)
+
     # 5. Run Consumer
     consumer = MarketDataConsumer(config=config, dispatcher=dispatcher)
+    if lifecycle_monitor:
+        lifecycle_monitor.set_consumer(consumer)
 
     try:
         consumer.run(max_messages=args.max_messages)
@@ -120,6 +165,11 @@ def main() -> int:
     except Exception as exc:
         logger.critical("Fatal error during consumer execution: %s", exc, exc_info=True)
         return 2
+    finally:
+        if lifecycle_monitor:
+            lifecycle_monitor.stop()
+        if heartbeat_worker:
+            heartbeat_worker.stop()
 
     return 0
 

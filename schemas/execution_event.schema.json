@@ -1,0 +1,253 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://nova.manthan2026.internal/schemas/execution_event.schema.json",
+  "title": "ExecutionEvent",
+  "description": "Standard schema for execution lifecycle events emitted by Person 1's Execution Adapter for consumption by Person 2 (Quant Alpha) and Person 3 (Risk Gateway).",
+  "type": "object",
+  "required": [
+    "event_type",
+    "timestamp",
+    "order_result"
+  ],
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "description": "Lifecycle transition type of the execution event.",
+      "enum": [
+        "ORDER_SUBMISSION_ATTEMPT",
+        "ORDER_ACCEPTED",
+        "ORDER_FILLED",
+        "ORDER_PARTIALLY_FILLED",
+        "ORDER_REJECTED",
+        "ORDER_UNCERTAIN",
+        "ORDER_CANCELLED"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 timestamp when the event was emitted."
+    },
+    "order_result": {
+      "type": "object",
+      "description": "Detailed execution outcome corresponding to the submitted order intent.",
+      "required": [
+        "client_intent_id",
+        "ticker",
+        "action",
+        "quantity",
+        "status",
+        "filled_quantity",
+        "charges",
+        "requires_reconciliation",
+        "timestamp"
+      ],
+      "properties": {
+        "client_intent_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique client-side intent identifier corresponding to OrderIntent.intent_id."
+        },
+        "ticker": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Z0-9_.-]+$",
+          "description": "Uppercase stock ticker symbol."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "BUY",
+            "SELL",
+            "SHORT",
+            "COVER"
+          ],
+          "description": "Order action side permitted by exchange API."
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Intended order quantity. Must be a strictly positive integer."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PENDING",
+            "SUBMITTED",
+            "FILLED",
+            "PARTIALLY_FILLED",
+            "REJECTED",
+            "CANCELLED",
+            "UNKNOWN"
+          ],
+          "description": "Execution lifecycle status classification."
+        },
+        "order_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Platform-assigned order ID string if successfully acknowledged by exchange."
+        },
+        "execution_price": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0.0,
+          "description": "Execution fill price per share in INR if filled or partially filled."
+        },
+        "filled_quantity": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of shares filled so far (0 for pending, rejected, or unknown)."
+        },
+        "charges": {
+          "type": "number",
+          "minimum": 0.0,
+          "description": "Total brokerage, commission, and platform fees in INR."
+        },
+        "rejection_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Detailed rejection or error reason if status is REJECTED or UNKNOWN."
+        },
+        "requires_reconciliation": {
+          "type": "boolean",
+          "description": "Flag indicating outcome uncertainty requiring account or position reconciliation."
+        },
+        "raw_response": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Raw JSON dictionary returned by exchange endpoint if available."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC ISO-8601 timestamp of the order outcome."
+        }
+      },
+      "additionalProperties": false
+    },
+    "extra": {
+      "type": "object",
+      "description": "Optional metadata dictionary containing strategy_id, risk_authorization_id, or client telemetry.",
+      "properties": {
+        "strategy_id": {
+          "type": "string",
+          "description": "Identifier of the alpha strategy generating the trade (Person 2 provenance)."
+        },
+        "risk_authorization_id": {
+          "type": "string",
+          "description": "Authorization token or HMAC signature issued by Person 3's risk gateway."
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "When status is UNKNOWN, requires_reconciliation must be true.",
+      "if": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "status": {
+                "const": "UNKNOWN"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "requires_reconciliation": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "When status is REJECTED, rejection_reason must be provided as a non-empty string.",
+      "if": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "status": {
+                "const": "REJECTED"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "rejection_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "When status is FILLED, filled_quantity must be greater than zero.",
+      "if": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "status": {
+                "const": "FILLED"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "filled_quantity": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "When event_type is ORDER_UNCERTAIN, status must be UNKNOWN.",
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "ORDER_UNCERTAIN"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "order_result": {
+            "properties": {
+              "status": {
+                "const": "UNKNOWN"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

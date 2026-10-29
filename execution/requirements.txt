@@ -1,0 +1,6 @@
+# Execution module dependencies
+# The execution adapter uses standard library urllib for maximum portability and zero-drift resilience.
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
