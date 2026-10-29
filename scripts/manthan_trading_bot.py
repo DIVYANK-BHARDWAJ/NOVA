@@ -20,10 +20,12 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone, timedelta
 import json
+import requests
 import logging
 import os
 from pathlib import Path
 import sys
+import threading
 import time
 from typing import Any
 import urllib.error
@@ -100,41 +102,84 @@ class ManthanTradingBot:
         self.slow_window = slow_window
         self.batch_quantity = batch_quantity
 
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "NOVA-Forge-Bot/1.0",
+            "Connection": "close",
+        }
+
         self.tradable_tickers: set[str] = set()
         self.price_history: dict[str, list[float]] = {}
         self.holdings: dict[str, int] = {}
-        self.last_heartbeat_seq: int = -1
+        self.last_heartbeat_seq: int = 1
+        self._stop_heartbeat = False
+
+        # Attempt initial universe discovery
+        self.discover_universe()
+
+        # Start continuous 5s heartbeat thread to keep portal status Ready
+        self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._heartbeat_thread.start()
+
+    def send_request(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        payload: dict | None = None,
+        timeout: float = 5.0,
+    ) -> dict | None:
+        """Send authenticated HTTP request with clean per-request connection."""
+        url = f"{self.gateway}{endpoint}" if endpoint.startswith("/") else endpoint
+        try:
+            if method.upper() == "POST":
+                resp = requests.post(url, json=payload, headers=self.headers, timeout=timeout)
+            else:
+                resp = requests.get(url, headers=self.headers, timeout=timeout)
+            if resp.status_code in (200, 201):
+                return resp.json()
+            else:
+                logger.warning("HTTP %s %s returned status %d: %s", method, url, resp.status_code, resp.text)
+                return None
+        except Exception as exc:
+            logger.warning("HTTP %s %s failed: %s", method, url, exc)
+            return None
+
+    def discover_universe(self) -> None:
+        """Fetch stock universe from GET /api/v1/stocks."""
+        if not self.tradable_tickers:
+            stocks_res = self.send_request("/api/v1/stocks", method="GET", timeout=10.0)
+            if stocks_res and "stocks" in stocks_res:
+                self.tradable_tickers = {s["ticker"] for s in stocks_res["stocks"]}
+                logger.info(
+                    "[UNIVERSE] Discovered %d simulation tickers: %s",
+                    len(self.tradable_tickers),
+                    sorted(self.tradable_tickers),
+                )
+
+    def _heartbeat_loop(self) -> None:
+        """Periodically acknowledge heartbeat to ensure portal readiness stays active."""
+        while not self._stop_heartbeat:
+            try:
+                seq = max(1, self.last_heartbeat_seq)
+                res = self.send_request("/api/v1/bot/heartbeat", method="POST", payload={"seq": seq}, timeout=10.0)
+                if res and res.get("status") == "ok":
+                    logger.info("[HEARTBEAT] Heartbeat ACK successful (seq=%d)", seq)
+            except Exception as exc:
+                logger.warning("[HEARTBEAT] Periodic heartbeat error: %s", exc)
+            time.sleep(5.0)
 
     def handle_preflight(self, seq: int) -> None:
         """Acknowledge pre-flight heartbeat and discover tradable stock universe."""
         logger.info("[PREFLIGHT] Acknowledging heartbeat seq=%d...", seq)
         # 1. Heartbeat ACK
-        hb_res = send_http_request(
-            f"{self.gateway}/api/v1/bot/heartbeat",
-            method="POST",
-            token=self.token,
-            payload={"seq": seq},
-            timeout=2.0,
-        )
+        hb_res = self.send_request("/api/v1/bot/heartbeat", method="POST", payload={"seq": seq}, timeout=10.0)
         if hb_res is not None:
             logger.info("[PREFLIGHT] Heartbeat ACK successful for seq=%d", seq)
             self.last_heartbeat_seq = seq
 
         # 2. Fetch stock universe if not loaded
-        if not self.tradable_tickers:
-            stocks_res = send_http_request(
-                f"{self.gateway}/api/v1/stocks",
-                method="GET",
-                token=self.token,
-                timeout=5.0,
-            )
-            if stocks_res and "stocks" in stocks_res:
-                self.tradable_tickers = {s["ticker"] for s in stocks_res["stocks"]}
-                logger.info(
-                    "[PREFLIGHT] Discovered %d simulation tickers: %s",
-                    len(self.tradable_tickers),
-                    sorted(self.tradable_tickers),
-                )
+        self.discover_universe()
 
     def submit_order(self, ticker: str, action: str, quantity: int) -> bool:
         """Submit trade order to competition gateway."""
@@ -145,13 +190,7 @@ class ManthanTradingBot:
             quantity,
         )
         payload = {"ticker": ticker, "action": action, "quantity": quantity}
-        res = send_http_request(
-            f"{self.gateway}/api/v1/orders",
-            method="POST",
-            token=self.token,
-            payload=payload,
-            timeout=3.0,
-        )
+        res = self.send_request("/api/v1/orders", method="POST", payload=payload, timeout=10.0)
         if res is not None:
             logger.info("[ORDER SUCCESS] Response: %s", res)
             if action == "BUY":
