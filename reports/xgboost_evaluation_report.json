@@ -1,0 +1,89 @@
+{
+  "timestamp_utc": "2026-10-29T19:45:43.048414+00:00",
+  "model_id": "GBDT_OHLCV_BASELINE",
+  "model_version": "1.0.0",
+  "artifact_path": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\artifacts\\models\\gbdt_ohlcv_baseline_v1\\model.json",
+  "artifact_checksum": "a053acc8189a20288a2b8e0d30fee234dfd193a4c9015ab4733e01eb607ddf5e",
+  "dataset_sample_counts": {
+    "total_raw": 18494,
+    "train_rows": 9201,
+    "val_rows": 4490,
+    "test_rows": 4493,
+    "purged_embargo": 20
+  },
+  "chronological_partitions": {
+    "train": [
+      "2016-12-02",
+      "2022-04-14"
+    ],
+    "val": [
+      "2022-04-19",
+      "2024-01-31"
+    ],
+    "test": [
+      "2024-02-02",
+      "2025-11-19"
+    ]
+  },
+  "test_metrics": {
+    "split": "test",
+    "sample_count": 4493,
+    "mae": 0.015423,
+    "rmse": 0.024398,
+    "directional_accuracy_pct": 51.75,
+    "r2": -0.004203
+  },
+  "baseline_comparisons": {
+    "model": {
+      "split": "model",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.024398,
+      "directional_accuracy_pct": 51.75,
+      "r2": -0.004203
+    },
+    "zero_baseline": {
+      "split": "zero_baseline",
+      "sample_count": 4493,
+      "mae": 0.015426,
+      "rmse": 0.024374,
+      "directional_accuracy_pct": 0.22,
+      "r2": -0.002169
+    },
+    "mean_baseline": {
+      "split": "mean_baseline",
+      "sample_count": 4493,
+      "mae": 0.015409,
+      "rmse": 0.024347,
+      "directional_accuracy_pct": 52.41,
+      "r2": 0.0
+    },
+    "rmse_improvement_vs_zero_pct": -0.1,
+    "rmse_improvement_vs_mean_pct": -0.21,
+    "directional_advantage_vs_random_pct": 1.75
+  },
+  "inference_smoke_test": {
+    "latency_ms": 1.052,
+    "sample_prediction": {
+      "model_id": "GBDT_OHLCV_BASELINE",
+      "model_version": "1.0.0",
+      "prediction_timestamp": "2025-11-11T00:00:00+00:00",
+      "input_cutoff_timestamp": "2025-11-11T00:00:00+00:00",
+      "instrument_id": "AERX",
+      "prediction_type": "EXPECTED_RETURN_DECIMAL",
+      "horizon_bars": 1,
+      "horizon_unit": "BARS",
+      "prediction_value": 0.000386,
+      "prediction_distribution": null,
+      "confidence_or_uncertainty": 0.1,
+      "availability_status": "READY",
+      "metadata": {
+        "backend": "PURE_PYTHON_GBDT",
+        "expected_bps": 3.9,
+        "feature_count": 12,
+        "is_bullish": true
+      },
+      "contract_version": "PROPOSED_V0"
+    }
+  }
+}

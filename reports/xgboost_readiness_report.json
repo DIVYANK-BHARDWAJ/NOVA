@@ -1,0 +1,365 @@
+{
+  "timestamp_utc": "2026-10-29T19:32:07.521366+00:00",
+  "kafka_probe": {
+    "probe_executed": true,
+    "timeout_seconds": 5.0,
+    "messages_received": 0,
+    "status": "IDLE_STREAM_ZERO_MESSAGES",
+    "errors": []
+  },
+  "readiness_summary": {
+    "initial_61_bar_archive": {
+      "aggregate_raw_bars": 615,
+      "aggregate_usable_train_rows": 180,
+      "aggregate_usable_val_rows": 50,
+      "aggregate_usable_test_rows": 75,
+      "is_trainable": true,
+      "is_credible": false,
+      "verdict": "Mathematically insufficient for cross-sectional or per-ticker supervised ML"
+    },
+    "full_18494_bar_archive": {
+      "horizon_1_day": {
+        "horizon_bars": 1,
+        "warmup_bars": 28,
+        "aggregate_raw_bars": 18494,
+        "aggregate_usable_train_rows": 10909,
+        "aggregate_usable_val_rows": 3626,
+        "aggregate_usable_test_rows": 3649,
+        "aggregate_total_usable_rows": 18184,
+        "is_cross_sectional_trainable": true,
+        "is_cross_sectional_statistically_credible": true,
+        "per_ticker_counts": {
+          "AERX": {
+            "raw_bars": 2276,
+            "usable_train": 1347,
+            "usable_val": 448,
+            "usable_test": 450,
+            "total_usable": 2245,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1347 train, 448 val, 450 test bars."
+          },
+          "BLUX": {
+            "raw_bars": 2278,
+            "usable_train": 1348,
+            "usable_val": 448,
+            "usable_test": 451,
+            "total_usable": 2247,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1348 train, 448 val, 451 test bars."
+          },
+          "DSNY": {
+            "raw_bars": 2279,
+            "usable_train": 1349,
+            "usable_val": 449,
+            "usable_test": 450,
+            "total_usable": 2248,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1349 train, 449 val, 450 test bars."
+          },
+          "HAVN": {
+            "raw_bars": 1031,
+            "usable_train": 600,
+            "usable_val": 199,
+            "usable_test": 201,
+            "total_usable": 1000,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 600 train, 199 val, 201 test bars."
+          },
+          "HMDP": {
+            "raw_bars": 2281,
+            "usable_train": 1350,
+            "usable_val": 449,
+            "usable_test": 451,
+            "total_usable": 2250,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1350 train, 449 val, 451 test bars."
+          },
+          "MOTR": {
+            "raw_bars": 2281,
+            "usable_train": 1350,
+            "usable_val": 449,
+            "usable_test": 451,
+            "total_usable": 2250,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1350 train, 449 val, 451 test bars."
+          },
+          "ORCX": {
+            "raw_bars": 2281,
+            "usable_train": 1350,
+            "usable_val": 449,
+            "usable_test": 451,
+            "total_usable": 2250,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1350 train, 449 val, 451 test bars."
+          },
+          "PLNX": {
+            "raw_bars": 1032,
+            "usable_train": 600,
+            "usable_val": 199,
+            "usable_test": 202,
+            "total_usable": 1001,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 600 train, 199 val, 202 test bars."
+          },
+          "ROUT": {
+            "raw_bars": 1377,
+            "usable_train": 807,
+            "usable_val": 268,
+            "usable_test": 271,
+            "total_usable": 1346,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 807 train, 268 val, 271 test bars."
+          },
+          "SONA": {
+            "raw_bars": 1378,
+            "usable_train": 808,
+            "usable_val": 268,
+            "usable_test": 271,
+            "total_usable": 1347,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 808 train, 268 val, 271 test bars."
+          }
+        }
+      },
+      "horizon_5_days": {
+        "horizon_bars": 5,
+        "warmup_bars": 28,
+        "aggregate_raw_bars": 18494,
+        "aggregate_usable_train_rows": 10843,
+        "aggregate_usable_val_rows": 3578,
+        "aggregate_usable_test_rows": 3643,
+        "aggregate_total_usable_rows": 18064,
+        "is_cross_sectional_trainable": true,
+        "is_cross_sectional_statistically_credible": true,
+        "per_ticker_counts": {
+          "AERX": {
+            "raw_bars": 2276,
+            "usable_train": 1340,
+            "usable_val": 443,
+            "usable_test": 450,
+            "total_usable": 2233,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1340 train, 443 val, 450 test bars."
+          },
+          "BLUX": {
+            "raw_bars": 2278,
+            "usable_train": 1342,
+            "usable_val": 444,
+            "usable_test": 449,
+            "total_usable": 2235,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1342 train, 444 val, 449 test bars."
+          },
+          "DSNY": {
+            "raw_bars": 2279,
+            "usable_train": 1342,
+            "usable_val": 444,
+            "usable_test": 450,
+            "total_usable": 2236,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1342 train, 444 val, 450 test bars."
+          },
+          "HAVN": {
+            "raw_bars": 1031,
+            "usable_train": 593,
+            "usable_val": 194,
+            "usable_test": 201,
+            "total_usable": 988,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 593 train, 194 val, 201 test bars."
+          },
+          "HMDP": {
+            "raw_bars": 2281,
+            "usable_train": 1343,
+            "usable_val": 444,
+            "usable_test": 451,
+            "total_usable": 2238,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1343 train, 444 val, 451 test bars."
+          },
+          "MOTR": {
+            "raw_bars": 2281,
+            "usable_train": 1343,
+            "usable_val": 444,
+            "usable_test": 451,
+            "total_usable": 2238,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1343 train, 444 val, 451 test bars."
+          },
+          "ORCX": {
+            "raw_bars": 2281,
+            "usable_train": 1343,
+            "usable_val": 444,
+            "usable_test": 451,
+            "total_usable": 2238,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1343 train, 444 val, 451 test bars."
+          },
+          "PLNX": {
+            "raw_bars": 1032,
+            "usable_train": 594,
+            "usable_val": 194,
+            "usable_test": 201,
+            "total_usable": 989,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 594 train, 194 val, 201 test bars."
+          },
+          "ROUT": {
+            "raw_bars": 1377,
+            "usable_train": 801,
+            "usable_val": 263,
+            "usable_test": 270,
+            "total_usable": 1334,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 801 train, 263 val, 270 test bars."
+          },
+          "SONA": {
+            "raw_bars": 1378,
+            "usable_train": 802,
+            "usable_val": 264,
+            "usable_test": 269,
+            "total_usable": 1335,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 802 train, 264 val, 269 test bars."
+          }
+        }
+      },
+      "horizon_10_days": {
+        "horizon_bars": 10,
+        "warmup_bars": 28,
+        "aggregate_raw_bars": 18494,
+        "aggregate_usable_train_rows": 10763,
+        "aggregate_usable_val_rows": 3518,
+        "aggregate_usable_test_rows": 3633,
+        "aggregate_total_usable_rows": 17914,
+        "is_cross_sectional_trainable": true,
+        "is_cross_sectional_statistically_credible": true,
+        "per_ticker_counts": {
+          "AERX": {
+            "raw_bars": 2276,
+            "usable_train": 1332,
+            "usable_val": 437,
+            "usable_test": 449,
+            "total_usable": 2218,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1332 train, 437 val, 449 test bars."
+          },
+          "BLUX": {
+            "raw_bars": 2278,
+            "usable_train": 1334,
+            "usable_val": 438,
+            "usable_test": 448,
+            "total_usable": 2220,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1334 train, 438 val, 448 test bars."
+          },
+          "DSNY": {
+            "raw_bars": 2279,
+            "usable_train": 1334,
+            "usable_val": 438,
+            "usable_test": 449,
+            "total_usable": 2221,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1334 train, 438 val, 449 test bars."
+          },
+          "HAVN": {
+            "raw_bars": 1031,
+            "usable_train": 585,
+            "usable_val": 188,
+            "usable_test": 200,
+            "total_usable": 973,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 585 train, 188 val, 200 test bars."
+          },
+          "HMDP": {
+            "raw_bars": 2281,
+            "usable_train": 1335,
+            "usable_val": 438,
+            "usable_test": 450,
+            "total_usable": 2223,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1335 train, 438 val, 450 test bars."
+          },
+          "MOTR": {
+            "raw_bars": 2281,
+            "usable_train": 1335,
+            "usable_val": 438,
+            "usable_test": 450,
+            "total_usable": 2223,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1335 train, 438 val, 450 test bars."
+          },
+          "ORCX": {
+            "raw_bars": 2281,
+            "usable_train": 1335,
+            "usable_val": 438,
+            "usable_test": 450,
+            "total_usable": 2223,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 1335 train, 438 val, 450 test bars."
+          },
+          "PLNX": {
+            "raw_bars": 1032,
+            "usable_train": 586,
+            "usable_val": 188,
+            "usable_test": 200,
+            "total_usable": 974,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 586 train, 188 val, 200 test bars."
+          },
+          "ROUT": {
+            "raw_bars": 1377,
+            "usable_train": 793,
+            "usable_val": 257,
+            "usable_test": 269,
+            "total_usable": 1319,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 793 train, 257 val, 269 test bars."
+          },
+          "SONA": {
+            "raw_bars": 1378,
+            "usable_train": 794,
+            "usable_val": 258,
+            "usable_test": 268,
+            "total_usable": 1320,
+            "is_trainable": true,
+            "is_credible": true,
+            "justification": "Robust statistical sample: 794 train, 258 val, 268 test bars."
+          }
+        }
+      },
+      "is_trainable": true,
+      "is_credible": true,
+      "verdict": "Fully statistically credible and ready for chronological supervised ML modeling"
+    }
+  }
+}

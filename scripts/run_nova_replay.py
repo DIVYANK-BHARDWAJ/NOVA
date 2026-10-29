@@ -1,4 +1,4 @@
-"""CLI Runner for Sentinel Trader Replay Evaluation (Person 3).
+"""CLI Runner for NOVA Trader Replay Evaluation (Person 3).
 
 Demonstrates the modular trend-following and mean-reversion strategies,
 combined decision engine, all-in friction modeling, and deterministic risk gates.
@@ -45,7 +45,7 @@ def generate_market_scenario(pattern: str = "bullish", n_bars: int = 60) -> list
         t = base_time + timedelta(minutes=5 * i)
         bars.append(
             MarketBar(
-                ticker="SENTINEL_DEMO",
+                ticker="NOVA_DEMO",
                 open=round(price * 0.999, 2),
                 high=round(price * 1.003, 2),
                 low=round(price * 0.997, 2),
@@ -61,7 +61,7 @@ def generate_market_scenario(pattern: str = "bullish", n_bars: int = 60) -> list
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sentinel Trader Decision Replay Evaluation")
+    parser = argparse.ArgumentParser(description="NOVA Trader Decision Replay Evaluation")
     parser.add_argument("--pattern", choices=["bullish", "bearish", "cyclical"], default="bullish", help="Market trend pattern")
     parser.add_argument("--engine", choices=["live", "baseline", "compare"], default="live", help="Which decision engine to run")
     parser.add_argument("--bars", type=int, default=60, help="Number of candlestick bars to simulate")
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--spread-bps", type=float, default=2.0, help="Bid-ask spread in bps")
     parser.add_argument("--slippage-bps", type=float, default=3.0, help="Execution slippage in bps")
     parser.add_argument("--brokerage-bps", type=float, default=1.0, help="Brokerage commission in bps")
-    parser.add_argument("--capital", type=float, default=1000000.0, help="Initial portfolio capital in INR (default ₹10,00,000)")
+    parser.add_argument("--capital", type=float, default=1000000.0, help="Initial portfolio capital in INR (default INR 10,00,000)")
     parser.add_argument("--timing", choices=["NEXT_OPEN", "CANDLE_CLOSE"], default="NEXT_OPEN", help="Execution fill timing (NEXT_OPEN causal vs CANDLE_CLOSE simulator)")
     parser.add_argument("--output-json", type=str, default=None, help="Optional output JSON path for results")
     return parser.parse_args()
@@ -146,7 +146,7 @@ def main() -> int:
         sum_live = rep_live.run(bars, warmup_bars=args.warmup, initial_capital=args.capital, execution_timing=args.timing)
 
         print("=" * 86)
-        print("SENTINEL TRADER -- HEAD-TO-HEAD REPLAY EVALUATION (BASELINE vs 14-STEP LIVE ENGINE)")
+        print("NOVA TRADER -- HEAD-TO-HEAD REPLAY EVALUATION (BASELINE vs 14-STEP LIVE ENGINE)")
         print("=" * 86)
         print(f"{'Metric':<34} | {'Baseline Ensemble':<22} | {'14-Step Live Engine':<22}")
         print("-" * 86)

@@ -1,6 +1,6 @@
 {
-  "timestamp_utc": "2026-10-29T14:09:04.653779+00:00",
-  "verification_mode": "OFFLINE_DETERMINISTIC",
+  "timestamp_utc": "2026-10-29T17:56:34.514744+00:00",
+  "verification_mode": "LIVE_BROKER",
   "strategy": {
     "strategy_id": "ema_crossover",
     "strategy_version": "1.0.0",
@@ -17,28 +17,28 @@
   "order_execution_disabled": true,
   "outcomes": {
     "offline_tests_pass": true,
-    "broker_contacted": false,
+    "broker_contacted": true,
     "genuine_messages_received": false,
-    "strategy_invocation_verified": true,
-    "overall_status": "OFFLINE_TESTS_PASS"
+    "strategy_invocation_verified": false,
+    "overall_status": "KAFKA_CONNECTED_NO_MESSAGES"
   },
   "metrics": {
-    "ticks_received": 35,
-    "ticks_converted": 35,
+    "ticks_received": 0,
+    "ticks_converted": 0,
     "ticks_dropped_out_of_order": 0,
-    "evaluations_count": 35,
-    "bullish_signals_count": 10,
+    "evaluations_count": 0,
+    "bullish_signals_count": 0,
     "neutral_signals_count": 0,
-    "warmup_abstentions_count": 25,
+    "warmup_abstentions_count": 0,
     "unreliable_data_abstentions_count": 0,
     "evaluation_errors_count": 0
   },
   "performance": {
-    "avg_processing_latency_ms": 0.128,
-    "total_elapsed_ms": 4.46
+    "avg_processing_latency_ms": null,
+    "total_elapsed_ms": 3078.26
   },
-  "warnings": [
-    "Offline synthetic test fixtures used; real broker was not contacted."
-  ],
-  "blockers": []
+  "warnings": [],
+  "blockers": [
+    "No live tick messages published to topic during window."
+  ]
 }

@@ -25,10 +25,11 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+import json
 import math
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 
 # ============================================================================
@@ -70,12 +71,14 @@ class TimestampSemantics(str, Enum):
 
 class DataQualityStatus(str, Enum):
     """Data quality classification for market inputs and derived research signals."""
-    VALID = "VALID"                         # Fully inspected and validated
-    SUSPECT = "SUSPECT"                     # Anomalous movement, high spread, or unusual volume
-    STALE = "STALE"                         # Clock skew or delayed arrival
-    INTERPOLATED = "INTERPOLATED"           # Synthetic fill or imputed value
-    MISSING_METRICS = "MISSING_METRICS"     # Incomplete fields in payload
-    INVALID = "INVALID"                     # Corrupt, contradictory, or unparsable
+    VALID = "VALID"                                     # Fully inspected and validated from genuine competition feed
+    SUSPECT = "SUSPECT"                                 # Anomalous movement, high spread, or unusual volume
+    STALE = "STALE"                                     # Clock skew or delayed arrival
+    INTERPOLATED = "INTERPOLATED"                       # Synthetic fill or imputed value
+    MISSING_METRICS = "MISSING_METRICS"                 # Incomplete fields in payload
+    INVALID = "INVALID"                                 # Corrupt, contradictory, or unparsable
+    UNVERIFIED_PROVENANCE = "UNVERIFIED_PROVENANCE"     # Stream provenance not authenticated as official competition feed
+    SYNTHETIC_TEST_FIXTURE = "SYNTHETIC_TEST_FIXTURE"   # Isolated unit-test fixture (STRICTLY FORBIDDEN in live mode)
 
 
 class SignalDirection(str, Enum):
@@ -120,6 +123,27 @@ class RegimeCategory(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class PredictionType(str, Enum):
+    """Exact statistical semantic of a ModelPrediction output.
+
+    CRITICAL: A return forecast must never be confused with a probability or sentiment.
+    """
+    EXPECTED_RETURN_DECIMAL = "EXPECTED_RETURN_DECIMAL"  # Forward price return decimal (e.g. +0.0150 = +1.50%)
+    DIRECTIONAL_PROBABILITY = "DIRECTIONAL_PROBABILITY"  # Calibrated P(return > 0) in [0.0, 1.0]
+    REGIME_PROBABILITY = "REGIME_PROBABILITY"            # Probability of target regime in [0.0, 1.0]
+    VOLATILITY_ESTIMATE = "VOLATILITY_ESTIMATE"          # Realized or expected volatility (>= 0.0)
+    SENTIMENT_SCORE = "SENTIMENT_SCORE"                  # Bounded NLP text sentiment in [-1.0, 1.0]
+
+
+class PredictionAvailability(str, Enum):
+    """Inference readiness and operational status of a model prediction."""
+    READY = "READY"                                      # Normal, reliable model inference
+    STALE = "STALE"                                      # Input data clock skew or delayed bar
+    FALLBACK_HEURISTIC = "FALLBACK_HEURISTIC"            # Heuristic / fallback rule invoked
+    UNAVAILABLE = "UNAVAILABLE"                          # Inference failed or model offline
+    INSUFFICIENT_HISTORY = "INSUFFICIENT_HISTORY"        # Insufficient warmup bars to compute features
+
+
 # ============================================================================
 # Validation Utilities
 # ============================================================================
@@ -140,6 +164,38 @@ def validate_finite(value: float, field_name: str) -> None:
         raise NumericalValidationError(f"Field '{field_name}' must be numeric (non-boolean), got {type(value)}")
     if not math.isfinite(value):
         raise NumericalValidationError(f"Field '{field_name}' must be finite, got {value}")
+
+
+SENSITIVE_KEY_SUBSTRINGS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "password",
+    "jwt",
+    "token",
+    "bearer",
+    "credential",
+    "private_key",
+)
+
+
+def validate_no_secrets(mapping: Mapping[str, Any], field_name: str = "metadata") -> None:
+    """Ensure no credentials, JWTs, API keys, or private secrets are stored in metadata."""
+    if not isinstance(mapping, Mapping):
+        return
+    for k, v in mapping.items():
+        k_lower = k.lower()
+        for sens in SENSITIVE_KEY_SUBSTRINGS:
+            if sens in k_lower:
+                raise ContractValidationError(
+                    f"Sensitive credential detected in '{field_name}' key '{k}': metadata must not store secrets"
+                )
+        if isinstance(v, str):
+            v_lower = v.lower()
+            if "bearer " in v_lower or v_lower.startswith("eyj"):  # Common JWT prefix eyJ
+                raise ContractValidationError(
+                    f"Sensitive token value detected in '{field_name}' key '{k}': metadata must not store secrets"
+                )
 
 
 # ============================================================================
@@ -445,3 +501,368 @@ class ResearchMetadata:
         ]:
             if not isinstance(val, str) or not val.strip():
                 raise ContractValidationError(f"ResearchMetadata '{name}' cannot be blank")
+
+
+# ============================================================================
+# Canonical Model Prediction Contract (Interface Contract B)
+# ============================================================================
+
+@dataclass(frozen=True, slots=True)
+class ModelPrediction:
+    """Standardized prediction output contract produced by Person 2 quantitative models (Interface Contract B).
+
+    CRITICAL INVARIANTS:
+    1. Temporal Integrity: Both prediction_timestamp and input_cutoff_timestamp MUST be timezone-aware.
+       input_cutoff_timestamp CANNOT be later than prediction_timestamp (input_cutoff <= prediction_timestamp).
+    2. Statistical Disambiguation:
+       - EXPECTED_RETURN_DECIMAL: dimensionless price return decimal fraction (e.g. +0.0150 = +1.50%).
+       - DIRECTIONAL_PROBABILITY: calibrated probability in [0.0, 1.0].
+       - REGIME_PROBABILITY: calibrated probability in [0.0, 1.0].
+       - VOLATILITY_ESTIMATE: non-negative finite float (>= 0.0).
+       - SENTIMENT_SCORE: bounded NLP intensity in [-1.0, 1.0].
+    3. Finiteness: prediction_value and confidence_or_uncertainty reject NaN, +inf, -inf, and booleans.
+    4. Availability: UNAVAILABLE or INSUFFICIENT_HISTORY explicitly signifies that normal inference was not possible.
+    5. No Trade Execution: ModelPrediction is an analytical forecast, not an order or authorization.
+    """
+    model_id: str
+    model_version: str
+    prediction_timestamp: datetime
+    input_cutoff_timestamp: datetime
+    instrument_id: str
+    prediction_type: PredictionType
+    horizon_bars: int
+    prediction_value: float
+    horizon_unit: str = "BARS"
+    prediction_distribution: Mapping[str, float] | None = None
+    confidence_or_uncertainty: float | None = None
+    availability_status: PredictionAvailability = PredictionAvailability.READY
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    contract_version: str = "PROPOSED_V0"
+
+    def __post_init__(self) -> None:
+        # String validations
+        for name, val in [
+            ("model_id", self.model_id),
+            ("model_version", self.model_version),
+            ("instrument_id", self.instrument_id),
+            ("horizon_unit", self.horizon_unit),
+            ("contract_version", self.contract_version),
+        ]:
+            if not isinstance(val, str) or not val.strip():
+                raise ContractValidationError(f"ModelPrediction '{name}' cannot be blank or non-string")
+
+        # Timestamps
+        validate_timezone_aware(self.prediction_timestamp, "prediction_timestamp")
+        validate_timezone_aware(self.input_cutoff_timestamp, "input_cutoff_timestamp")
+        if self.input_cutoff_timestamp > self.prediction_timestamp:
+            raise TemporalValidationError(
+                f"input_cutoff_timestamp ({self.input_cutoff_timestamp}) cannot be after "
+                f"prediction_timestamp ({self.prediction_timestamp})"
+            )
+
+        # Enums normalization / validation
+        if isinstance(self.prediction_type, str):
+            try:
+                object.__setattr__(self, "prediction_type", PredictionType(self.prediction_type))
+            except ValueError:
+                raise ContractValidationError(f"Invalid PredictionType: {self.prediction_type}")
+        elif not isinstance(self.prediction_type, PredictionType):
+            raise ContractValidationError(f"Invalid PredictionType: {self.prediction_type}")
+
+        if isinstance(self.availability_status, str):
+            try:
+                object.__setattr__(self, "availability_status", PredictionAvailability(self.availability_status))
+            except ValueError:
+                raise ContractValidationError(f"Invalid PredictionAvailability: {self.availability_status}")
+        elif not isinstance(self.availability_status, PredictionAvailability):
+            raise ContractValidationError(f"Invalid PredictionAvailability: {self.availability_status}")
+
+        # Horizon bars validation
+        if isinstance(self.horizon_bars, bool) or not isinstance(self.horizon_bars, int) or self.horizon_bars <= 0:
+            raise ContractValidationError("horizon_bars must be a positive integer (non-boolean)")
+
+        # Prediction value validation
+        validate_finite(self.prediction_value, "prediction_value")
+
+        # Statistical type range constraints
+        if self.prediction_type == PredictionType.DIRECTIONAL_PROBABILITY:
+            if not (0.0 <= self.prediction_value <= 1.0):
+                raise NumericalValidationError(
+                    f"DIRECTIONAL_PROBABILITY must be in [0.0, 1.0], got {self.prediction_value}"
+                )
+        elif self.prediction_type == PredictionType.REGIME_PROBABILITY:
+            if not (0.0 <= self.prediction_value <= 1.0):
+                raise NumericalValidationError(
+                    f"REGIME_PROBABILITY must be in [0.0, 1.0], got {self.prediction_value}"
+                )
+        elif self.prediction_type == PredictionType.VOLATILITY_ESTIMATE:
+            if self.prediction_value < 0.0:
+                raise NumericalValidationError(
+                    f"VOLATILITY_ESTIMATE must be non-negative (>= 0.0), got {self.prediction_value}"
+                )
+        elif self.prediction_type == PredictionType.SENTIMENT_SCORE:
+            if not (-1.0 <= self.prediction_value <= 1.0):
+                raise NumericalValidationError(
+                    f"SENTIMENT_SCORE must be in [-1.0, 1.0], got {self.prediction_value}"
+                )
+        elif self.prediction_type == PredictionType.EXPECTED_RETURN_DECIMAL:
+            # Must be finite float, already checked
+            pass
+
+        # Confidence / uncertainty validation
+        if self.confidence_or_uncertainty is not None:
+            validate_finite(self.confidence_or_uncertainty, "confidence_or_uncertainty")
+            if not (0.0 <= self.confidence_or_uncertainty <= 1.0):
+                raise NumericalValidationError(
+                    f"confidence_or_uncertainty must be in [0.0, 1.0], got {self.confidence_or_uncertainty}"
+                )
+
+        # Prediction distribution validation
+        if self.prediction_distribution is not None:
+            if not isinstance(self.prediction_distribution, Mapping):
+                raise ContractValidationError("prediction_distribution must be a mapping of string keys to numeric values")
+            for k, v in self.prediction_distribution.items():
+                if not isinstance(k, str) or not k.strip():
+                    raise ContractValidationError("prediction_distribution keys must be non-empty strings")
+                validate_finite(v, f"prediction_distribution[{k}]")
+            if self.prediction_type == PredictionType.REGIME_PROBABILITY:
+                for k, v in self.prediction_distribution.items():
+                    if not (0.0 <= v <= 1.0):
+                        raise NumericalValidationError(
+                            f"REGIME_PROBABILITY distribution value for '{k}' must be in [0.0, 1.0], got {v}"
+                        )
+                dist_sum = sum(self.prediction_distribution.values())
+                if not math.isclose(dist_sum, 1.0, abs_tol=1e-2):
+                    raise NumericalValidationError(
+                        f"REGIME_PROBABILITY distribution values must sum to approximately 1.0, got {dist_sum}"
+                    )
+
+        # Metadata validation
+        if not isinstance(self.metadata, Mapping):
+            raise ContractValidationError("metadata must be a mapping (dict-like)")
+        validate_no_secrets(self.metadata, "metadata")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert ModelPrediction instance to a JSON-serializable dictionary matching the schema."""
+        return {
+            "model_id": self.model_id,
+            "model_version": self.model_version,
+            "prediction_timestamp": self.prediction_timestamp.isoformat(),
+            "input_cutoff_timestamp": self.input_cutoff_timestamp.isoformat(),
+            "instrument_id": self.instrument_id,
+            "prediction_type": self.prediction_type.value,
+            "horizon_bars": self.horizon_bars,
+            "horizon_unit": self.horizon_unit,
+            "prediction_value": self.prediction_value,
+            "prediction_distribution": dict(self.prediction_distribution) if self.prediction_distribution is not None else None,
+            "confidence_or_uncertainty": self.confidence_or_uncertainty,
+            "availability_status": self.availability_status.value,
+            "metadata": dict(self.metadata),
+            "contract_version": self.contract_version,
+        }
+
+    def to_json(self, indent: int | None = None) -> str:
+        """Serialize ModelPrediction to deterministic JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ModelPrediction:
+        """Construct ModelPrediction from dictionary with strict parsing."""
+        if not isinstance(data, Mapping):
+            raise ContractValidationError(f"Expected dictionary payload, got {type(data)}")
+
+        required = [
+            "model_id",
+            "model_version",
+            "prediction_timestamp",
+            "input_cutoff_timestamp",
+            "instrument_id",
+            "prediction_type",
+            "horizon_bars",
+            "horizon_unit",
+            "prediction_value",
+            "availability_status",
+            "contract_version",
+        ]
+        missing = [f for f in required if f not in data]
+        if missing:
+            raise ContractValidationError(f"Missing required fields for ModelPrediction: {missing}")
+
+        pred_ts = data["prediction_timestamp"]
+        if isinstance(pred_ts, str):
+            try:
+                pred_ts = datetime.fromisoformat(pred_ts)
+            except Exception as e:
+                raise TemporalValidationError(f"Invalid ISO format for prediction_timestamp: {e}")
+
+        cutoff_ts = data["input_cutoff_timestamp"]
+        if isinstance(cutoff_ts, str):
+            try:
+                cutoff_ts = datetime.fromisoformat(cutoff_ts)
+            except Exception as e:
+                raise TemporalValidationError(f"Invalid ISO format for input_cutoff_timestamp: {e}")
+
+        pred_type_raw = data["prediction_type"]
+        if isinstance(pred_type_raw, str):
+            try:
+                pred_type = PredictionType(pred_type_raw)
+            except ValueError:
+                raise ContractValidationError(f"Invalid PredictionType value: {pred_type_raw}")
+        elif isinstance(pred_type_raw, PredictionType):
+            pred_type = pred_type_raw
+        else:
+            raise ContractValidationError(f"prediction_type must be str or PredictionType, got {type(pred_type_raw)}")
+
+        avail_raw = data["availability_status"]
+        if isinstance(avail_raw, str):
+            try:
+                avail = PredictionAvailability(avail_raw)
+            except ValueError:
+                raise ContractValidationError(f"Invalid PredictionAvailability value: {avail_raw}")
+        elif isinstance(avail_raw, PredictionAvailability):
+            avail = avail_raw
+        else:
+            raise ContractValidationError(f"availability_status must be str or PredictionAvailability, got {type(avail_raw)}")
+
+        return cls(
+            model_id=data["model_id"],
+            model_version=data["model_version"],
+            prediction_timestamp=pred_ts,
+            input_cutoff_timestamp=cutoff_ts,
+            instrument_id=data["instrument_id"],
+            prediction_type=pred_type,
+            horizon_bars=data["horizon_bars"],
+            prediction_value=data["prediction_value"],
+            horizon_unit=data.get("horizon_unit", "BARS"),
+            prediction_distribution=data.get("prediction_distribution"),
+            confidence_or_uncertainty=data.get("confidence_or_uncertainty"),
+            availability_status=avail,
+            metadata=data.get("metadata", {}),
+            contract_version=data.get("contract_version", "PROPOSED_V0"),
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> ModelPrediction:
+        """Parse ModelPrediction from a JSON string."""
+        if not isinstance(json_str, str):
+            raise ContractValidationError(f"Expected json_str to be string, got {type(json_str)}")
+        try:
+            payload = json.loads(json_str)
+        except Exception as e:
+            raise ContractValidationError(f"Failed to parse JSON string: {e}")
+        return cls.from_dict(payload)
+
+
+def validate_model_prediction_schema_parity(data: Mapping[str, Any]) -> list[str]:
+    """Validates a dictionary against canonical schemas/model_prediction.schema.json rules.
+
+    Pure standard-library implementation ensuring 100% parity without third-party dependencies.
+    Returns a list of error strings (empty list indicates full compliance).
+    """
+    errors: list[str] = []
+    if not isinstance(data, Mapping):
+        return [f"Payload must be an object (Mapping), got {type(data)}"]
+
+    allowed_properties = {
+        "model_id",
+        "model_version",
+        "prediction_timestamp",
+        "input_cutoff_timestamp",
+        "instrument_id",
+        "prediction_type",
+        "horizon_bars",
+        "horizon_unit",
+        "prediction_value",
+        "prediction_distribution",
+        "confidence_or_uncertainty",
+        "availability_status",
+        "metadata",
+        "contract_version",
+    }
+    # additionalProperties: false
+    for key in data:
+        if key not in allowed_properties:
+            errors.append(f"Additional property not permitted: '{key}'")
+
+    required = [
+        "model_id",
+        "model_version",
+        "prediction_timestamp",
+        "input_cutoff_timestamp",
+        "instrument_id",
+        "prediction_type",
+        "horizon_bars",
+        "horizon_unit",
+        "prediction_value",
+        "availability_status",
+        "contract_version",
+    ]
+    for req in required:
+        if req not in data:
+            errors.append(f"Missing required property: '{req}'")
+
+    if errors:
+        return errors
+
+    # Check types and constraints
+    for str_prop in ["model_id", "model_version", "instrument_id", "horizon_unit", "contract_version"]:
+        val = data.get(str_prop)
+        if not isinstance(val, str) or len(val) < 1:
+            errors.append(f"Property '{str_prop}' must be a non-empty string")
+
+    # Timestamps format check
+    for ts_prop in ["prediction_timestamp", "input_cutoff_timestamp"]:
+        ts_val = data.get(ts_prop)
+        if not isinstance(ts_val, str):
+            errors.append(f"Property '{ts_prop}' must be an ISO 8601 date-time string")
+        else:
+            try:
+                parsed_dt = datetime.fromisoformat(ts_val)
+                if parsed_dt.tzinfo is None or parsed_dt.tzinfo.utcoffset(parsed_dt) is None:
+                    errors.append(f"Property '{ts_prop}' must include explicit timezone offset")
+            except Exception:
+                errors.append(f"Property '{ts_prop}' is not a valid ISO 8601 string: '{ts_val}'")
+
+    # Horizon bars
+    h_bars = data.get("horizon_bars")
+    if isinstance(h_bars, bool) or not isinstance(h_bars, int) or h_bars < 1:
+        errors.append(f"Property 'horizon_bars' must be an integer >= 1, got {h_bars}")
+
+    # Enums
+    valid_pred_types = {e.value for e in PredictionType}
+    if data.get("prediction_type") not in valid_pred_types:
+        errors.append(f"Property 'prediction_type' must be one of {sorted(valid_pred_types)}, got {data.get('prediction_type')}")
+
+    valid_avail = {e.value for e in PredictionAvailability}
+    if data.get("availability_status") not in valid_avail:
+        errors.append(f"Property 'availability_status' must be one of {sorted(valid_avail)}, got {data.get('availability_status')}")
+
+    # Numeric value
+    p_val = data.get("prediction_value")
+    if isinstance(p_val, bool) or not isinstance(p_val, (int, float)) or not math.isfinite(p_val):
+        errors.append(f"Property 'prediction_value' must be a finite number, got {p_val}")
+
+    # confidence_or_uncertainty
+    conf = data.get("confidence_or_uncertainty")
+    if conf is not None:
+        if isinstance(conf, bool) or not isinstance(conf, (int, float)) or not math.isfinite(conf):
+            errors.append(f"Property 'confidence_or_uncertainty' must be a finite number or null, got {conf}")
+        elif not (0.0 <= conf <= 1.0):
+            errors.append(f"Property 'confidence_or_uncertainty' must be in [0.0, 1.0], got {conf}")
+
+    # prediction_distribution
+    dist = data.get("prediction_distribution")
+    if dist is not None and not isinstance(dist, Mapping):
+        errors.append(f"Property 'prediction_distribution' must be an object or null, got {type(dist)}")
+
+    # metadata
+    meta = data.get("metadata")
+    if meta is not None and not isinstance(meta, Mapping):
+        errors.append(f"Property 'metadata' must be an object, got {type(meta)}")
+    elif meta is not None and isinstance(meta, Mapping):
+        try:
+            validate_no_secrets(meta, "metadata")
+        except ContractValidationError as err:
+            errors.append(str(err))
+
+    return errors

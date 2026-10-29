@@ -1,0 +1,43 @@
+# NOVA Quantitative Features Configuration
+# Version: 1.0.0
+# STATUS: PRODUCTION-READY (Person 2 Quantitative Pipeline)
+#
+# Rules:
+# 1. Zero hardcoded market assumptions. All window lengths, lookbacks, and thresholds are defined here.
+# 2. Strict point-in-time causality enforced.
+# 3. No secrets or credentials permitted in configuration.
+
+[features]
+config_version = "1.0.0"
+fast_ema_window = 12
+slow_ema_window = 26
+momentum_window = 5
+trend_slope_window = 10
+ker_window = 10
+adx_window = 14
+rolling_mean_window = 20
+rsi_window = 14
+vwap_window = 20
+atr_window = 14
+realized_vol_window = 20
+parkinson_vol_window = 20
+downside_vol_window = 20
+volume_mean_window = 20
+volume_divergence_window = 10
+benchmark_window = 10
+strict_live_mode = false
+
+[regime]
+# Centralized configuration for Person 2 Transparent Market-Regime Detector
+config_version = "1.0.0"
+ker_window = 10
+ker_trend_threshold = 0.50
+ker_ranging_threshold = 0.25
+volatility_window = 20
+high_volatility_threshold = 0.025
+min_volatility_floor = 0.005
+ewma_lambda = 0.94
+min_warmup_bars = 28
+fast_ema_window = 12
+slow_ema_window = 26
+model_id = "REGIME_DETECTOR_TRANSPARENT"
