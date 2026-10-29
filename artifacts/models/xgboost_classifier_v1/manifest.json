@@ -1,0 +1,34 @@
+{
+  "model_id": "NOVA_XGBOOST_DIRECTIONAL_CLASSIFIER_V1",
+  "model_version": "1.0.0",
+  "model_type": "NATIVE_XGBOOST_DIRECTIONAL_CLASSIFIER",
+  "objective": "binary:logistic",
+  "eval_metric": "logloss",
+  "created_at_utc": "2026-10-29T20:51:44.087532+00:00",
+  "artifact_file": "model.json",
+  "artifact_sha256": "1ef343ad65aa1fa4c2e29fa98b00762ad1ccef7bb0e46be33c7620ba2115f575",
+  "artifact_size_bytes": 9614,
+  "source_dataset": "data/replay/canonical_manthan_v1/",
+  "sample_counts": {
+    "train": 9201,
+    "validation": 4490,
+    "test": 4493,
+    "purged_embargo": 20
+  },
+  "evaluation_metrics": {
+    "accuracy_pct": 52.48,
+    "balanced_accuracy_pct": 50.35,
+    "roc_auc": 0.499707,
+    "brier_score": 0.249604,
+    "log_loss": 0.692355,
+    "precision": 0.52598,
+    "recall": 0.945648,
+    "f1_score": 0.675975,
+    "mcnemar_vs_drift_p_value": 0.901098
+  },
+  "latency_profile_us": {
+    "feature_pipeline_us": 2006.68,
+    "model_inference_us": 1339.63,
+    "e2e_predict_bar_us": 4653.48
+  }
+}

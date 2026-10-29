@@ -1,0 +1,80 @@
+{
+  "model_id": "XGBOOST_NATIVE",
+  "model_version": "1.0.0",
+  "backend": "NATIVE_XGBOOST",
+  "created_at_utc": "2026-10-29T20:09:47.333220+00:00",
+  "target": "forward_return_1d",
+  "features": [
+    "momentum",
+    "trend_slope",
+    "kaufman_efficiency_ratio",
+    "ema_normalized_spread",
+    "rolling_z_score",
+    "rsi",
+    "normalized_atr",
+    "realized_volatility",
+    "parkinson_volatility",
+    "downside_deviation",
+    "relative_volume",
+    "volume_z_score"
+  ],
+  "sample_counts": {
+    "raw_observations": 18494,
+    "train_rows": 9201,
+    "val_rows": 4490,
+    "test_rows": 4493,
+    "purged_embargo_rows": 20
+  },
+  "chronological_partitions": {
+    "train": [
+      "2016-12-02",
+      "2022-04-14"
+    ],
+    "val": [
+      "2022-04-19",
+      "2024-01-31"
+    ],
+    "test": [
+      "2024-02-02",
+      "2025-11-19"
+    ]
+  },
+  "test_metrics": {
+    "split": "test",
+    "sample_count": 4493,
+    "mae": 0.015408,
+    "rmse": 0.024355,
+    "directional_accuracy_pct": 52.15,
+    "r2": -0.000624
+  },
+  "baseline_comparisons": {
+    "model": {
+      "split": "model",
+      "sample_count": 4493,
+      "mae": 0.015408,
+      "rmse": 0.024355,
+      "directional_accuracy_pct": 52.15,
+      "r2": -0.000624
+    },
+    "zero_baseline": {
+      "split": "zero_baseline",
+      "sample_count": 4493,
+      "mae": 0.015426,
+      "rmse": 0.024374,
+      "directional_accuracy_pct": 0.22,
+      "r2": -0.002169
+    },
+    "mean_baseline": {
+      "split": "mean_baseline",
+      "sample_count": 4493,
+      "mae": 0.015409,
+      "rmse": 0.024347,
+      "directional_accuracy_pct": 52.41,
+      "r2": 0.0
+    },
+    "rmse_improvement_vs_zero_pct": 0.08,
+    "rmse_improvement_vs_mean_pct": -0.03,
+    "directional_advantage_vs_random_pct": 2.15
+  },
+  "artifact_checksum": "d930a05ffe39875f7e6c162406d95e403a62645a52937e0503dc109fc5d67d33"
+}

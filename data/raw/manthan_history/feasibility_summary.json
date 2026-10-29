@@ -1,0 +1,112 @@
+{
+  "AERX": {
+    "status": 200,
+    "raw_records": 61,
+    "valid_records": 61,
+    "unique_dates": 61,
+    "earliest_date": "2026-05-22",
+    "latest_date": "2026-08-19",
+    "sha256": "95fb7fe8262a0ab087f20a1c6a6ecb3102b70f8dc85e35d4b67bd4c0a7da63d7",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "BLUX": {
+    "status": 200,
+    "raw_records": 61,
+    "valid_records": 61,
+    "unique_dates": 61,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-20",
+    "sha256": "cc24e29e68dde5c88bf258b2c8c163f2a1911fa7b3f8cc0ab2958147c7b59818",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "DSNY": {
+    "status": 200,
+    "raw_records": 61,
+    "valid_records": 61,
+    "unique_dates": 61,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-20",
+    "sha256": "982ec527f570796b3c7ad08cf1499329426b10b492c9c15e82f24ad7897ef4a9",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "HAVN": {
+    "status": 200,
+    "raw_records": 61,
+    "valid_records": 61,
+    "unique_dates": 61,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-20",
+    "sha256": "ce3040c300c101129a8075480461892f60ef98e2730b2368d7f369a46eaa681c",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "HMDP": {
+    "status": 200,
+    "raw_records": 61,
+    "valid_records": 61,
+    "unique_dates": 61,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-20",
+    "sha256": "a20f1020b882430292d37fff2dd3324ad6bbf32d26790bf27e371af48d1eb873",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "MOTR": {
+    "status": 200,
+    "raw_records": 62,
+    "valid_records": 62,
+    "unique_dates": 62,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-21",
+    "sha256": "9b4e8ccd86b7f2cf49e900dbf8e6d7b4c72555f22b877c7321d5467db7b45929",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "ORCX": {
+    "status": 200,
+    "raw_records": 62,
+    "valid_records": 62,
+    "unique_dates": 62,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-21",
+    "sha256": "1c31e2edd46b15b8056d205a0c1623b0bf60ed1773aebbc107ef0470a8fc13fe",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "PLNX": {
+    "status": 200,
+    "raw_records": 62,
+    "valid_records": 62,
+    "unique_dates": 62,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-21",
+    "sha256": "65bbd663651839c4d172c812c489b917ca7ea0d426130af87d0464db6b592117",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "ROUT": {
+    "status": 200,
+    "raw_records": 62,
+    "valid_records": 62,
+    "unique_dates": 62,
+    "earliest_date": "2026-05-26",
+    "latest_date": "2026-08-21",
+    "sha256": "c46ca04e93cf9f7fb960f50d24c2630e809a5b407452fe3add681dfc6e7ed7d0",
+    "sim_date": null,
+    "records_365d": 0
+  },
+  "SONA": {
+    "status": 200,
+    "raw_records": 62,
+    "valid_records": 62,
+    "unique_dates": 62,
+    "earliest_date": "2026-05-27",
+    "latest_date": "2026-08-24",
+    "sha256": "5e4d24a34200da10b9b8b993189dc28a3c33984f5f177a8722d1088f29e1fee5",
+    "sim_date": null,
+    "records_365d": 0
+  }
+}

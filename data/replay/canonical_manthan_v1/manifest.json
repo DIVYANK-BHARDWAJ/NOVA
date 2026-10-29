@@ -1,0 +1,28 @@
+{
+  "conflicting_duplicates_count": 0,
+  "created_at_utc": "2026-10-29T19:31:50.033151+00:00",
+  "dataset_id": "canonical_manthan_v1",
+  "date_ranges": {},
+  "file_checksums": {},
+  "metadata": {
+    "capture_run_id": "22cc546f"
+  },
+  "raw_deliveries_count": 18594,
+  "rejected_events_count": 0,
+  "rejection_reasons": {},
+  "repeated_deliveries_count": 18594,
+  "source_mode": "HISTORICAL_AND_REPLAY",
+  "tickers_covered": [
+    "AERX",
+    "BLUX",
+    "DSNY",
+    "HAVN",
+    "HMDP",
+    "MOTR",
+    "ORCX",
+    "PLNX",
+    "ROUT",
+    "SONA"
+  ],
+  "unique_observations_count": 18494
+}

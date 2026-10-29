@@ -7,6 +7,9 @@ name = "nova"
 version = "0.1.0"
 description = "NOVA Autonomous Trading System — Quantitative Research, Ingestion & Strategy Engine"
 requires-python = ">=3.11"
+dependencies = [
+    "xgboost>=3.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src", "kafka/src"]

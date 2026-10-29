@@ -481,7 +481,7 @@ class TestPerson1Finalization(unittest.TestCase):
 
         repo_root = Path(__file__).resolve().parent.parent
         self.assertTrue((repo_root / "scripts" / "run_sentinel_backtest.py").exists())
-        self.assertTrue((repo_root / "scripts" / "run_sentinel_replay.py").exists())
+        self.assertTrue((repo_root / "scripts" / "run_nova_replay.py").exists())
 
     def test_multi_ticker_interleaved_timestamp_monotonicity(self) -> None:
         """Verify chronological monotonicity is enforced per ticker, allowing interleaved tickers."""
