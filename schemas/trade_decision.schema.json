@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel-trader.org/schemas/trade_decision.schema.json",
+  "title": "TradeDecision",
+  "description": "Standardized trade decision contract produced by Person 3 decision intelligence engine (Interface Contract C)",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "decision_timestamp",
+    "instrument_id",
+    "selected_action",
+    "target_quantity_or_exposure",
+    "order_type",
+    "selected_strategy",
+    "selection_or_rejection_reasons",
+    "configuration_version"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique UUID or deterministic hash identifying this decision"
+    },
+    "decision_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when decision was reached"
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target ticker or contract symbol"
+    },
+    "selected_action": {
+      "type": "string",
+      "enum": ["BUY", "SELL", "HOLD", "REDUCE", "EXIT", "NO_TRADE"],
+      "description": "Action chosen by the decision engine"
+    },
+    "target_quantity_or_exposure": {
+      "type": "number",
+      "description": "Target position exposure fraction (-1.0 to 1.0) or target shares"
+    },
+    "order_type": {
+      "type": "string",
+      "enum": ["MARKET", "LIMIT", "NONE"],
+      "default": "MARKET",
+      "description": "Execution order type"
+    },
+    "expected_gross_return": {
+      "type": ["number", "null"],
+      "description": "Expected gross return decimal fraction before friction"
+    },
+    "estimated_all_in_cost": {
+      "type": ["number", "null"],
+      "description": "Estimated all-in friction decimal fraction (fees, spread, slippage)"
+    },
+    "expected_net_return": {
+      "type": ["number", "null"],
+      "description": "Expected net return decimal fraction: gross - all_in_cost"
+    },
+    "probability_of_clearing_costs": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Estimated probability that gross return exceeds all-in costs"
+    },
+    "uncertainty_estimate": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "description": "Uncertainty or volatility penalty metric"
+    },
+    "estimated_risk_contribution": {
+      "type": ["number", "null"],
+      "description": "Estimated incremental portfolio risk contribution"
+    },
+    "selected_strategy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of strategy or ensemble that generated the decision"
+    },
+    "selection_or_rejection_reasons": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of explicit human-readable reason codes"
+    },
+    "model_versions": {
+      "type": "object",
+      "description": "Mapping of model names to versions utilized in decision",
+      "default": {}
+    },
+    "configuration_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Version string of the running configuration"
+    }
+  },
+  "additionalProperties": false
+}
