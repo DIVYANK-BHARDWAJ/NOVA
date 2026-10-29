@@ -55,6 +55,17 @@ class CashReconciliationReport:
     is_synchronized: bool
 
 
+@dataclass(frozen=True)
+class PortfolioSummary:
+    """Point-in-time portfolio summary metrics."""
+    available_cash: float
+    total_portfolio_value: float
+    drawdown_fraction: float
+    positions_count: int
+    total_realized_pnl: float
+    total_charges: float
+
+
 @dataclass
 class PositionLedgerEntry:
     """Local accounting record for an individual stock position."""
@@ -82,6 +93,12 @@ class UncertainOrderRecord:
     rejection_reason: str
     is_resolved: bool = False
     resolved_status: Optional[OrderStatus] = None
+    filled_quantity: int = 0
+
+    @property
+    def remaining_quantity(self) -> int:
+        """Unfilled quantity remaining for this order."""
+        return max(0, self.quantity - self.filled_quantity)
 
 
 @dataclass(frozen=True)
@@ -200,6 +217,7 @@ class AccountLedger:
         # Idempotency and fill tracking
         self._processed_event_ids: set[str] = set()
         self._cumulative_fills_by_intent: dict[str, int] = {}
+        self._cumulative_charges_by_intent: dict[str, float] = {}
         self._uncertain_orders: dict[str, UncertainOrderRecord] = {}
         self._lock = threading.RLock()
 
@@ -214,6 +232,7 @@ class AccountLedger:
             self.total_realized_pnl = 0.0
             self._processed_event_ids.clear()
             self._cumulative_fills_by_intent.clear()
+            self._cumulative_charges_by_intent.clear()
             self._uncertain_orders.clear()
 
     def get_positions(self) -> dict[str, int]:
@@ -267,6 +286,66 @@ class AccountLedger:
         """Return all uncertain order records."""
         with self._lock:
             return list(self._uncertain_orders.values())
+
+    def get_portfolio_summary(self, current_prices: Optional[dict[str, float]] = None) -> PortfolioSummary:
+        """Return point-in-time portfolio summary."""
+        with self._lock:
+            val = self.get_portfolio_value(current_prices)
+            dd = self.get_drawdown(current_prices)
+            return PortfolioSummary(
+                available_cash=self.cash,
+                total_portfolio_value=val,
+                drawdown_fraction=dd,
+                positions_count=len(self.get_positions()),
+                total_realized_pnl=self.total_realized_pnl,
+                total_charges=self.total_charges,
+            )
+
+    def get_portfolio_state(self, current_prices: Optional[dict[str, float]] = None) -> Any:
+        """Construct authoritative Person 3 PortfolioState from local accounting records.
+
+        Bridges Person 1 AccountLedger to Person 3 Decision/Risk subsystems without
+        creating parallel state or duplicating tracking.
+        """
+        with self._lock:
+            try:
+                from nova.decision.contracts import PortfolioState, PositionState
+            except ImportError:
+                return None
+
+            prices = current_prices or {}
+            pos_states: dict[str, PositionState] = {}
+
+            for ticker, entry in self.positions.items():
+                if entry.quantity == 0:
+                    continue
+                px = prices.get(ticker.upper(), entry.avg_price)
+                unrealized = (
+                    (px - entry.avg_price) * entry.quantity
+                    if entry.quantity > 0
+                    else (entry.avg_price - px) * abs(entry.quantity)
+                )
+                pos_states[ticker.upper()] = PositionState(
+                    ticker=ticker.upper(),
+                    quantity=float(entry.quantity),
+                    entry_price=entry.avg_price,
+                    current_market_price=px,
+                    unrealized_pnl=unrealized,
+                    realized_pnl=entry.realized_pnl,
+                    highest_price=px,
+                    lowest_price=px,
+                    peak_unrealized_pnl=max(0.0, unrealized),
+                )
+
+            return PortfolioState(
+                available_cash=self.cash,
+                locked_margin=0.0,
+                positions=pos_states,
+                initial_capital=self.initial_cash,
+                peak_wealth=self._peak_portfolio_value,
+                realized_pnl_total=self.total_realized_pnl,
+                fees_paid_total=self.total_charges,
+            )
 
     def process_execution_event(
         self,
@@ -374,12 +453,22 @@ class AccountLedger:
                 pos.last_update_time = result.timestamp
                 self.total_charges += charges
                 self._cumulative_fills_by_intent[result.client_intent_id] = total_filled
+                self._cumulative_charges_by_intent[result.client_intent_id] = (
+                    self._cumulative_charges_by_intent.get(result.client_intent_id, 0.0) + charges
+                )
                 self._processed_event_ids.add(event_key)
 
                 # Resolve uncertain record if previously marked unknown
                 if result.client_intent_id in self._uncertain_orders:
-                    self._uncertain_orders[result.client_intent_id].is_resolved = True
-                    self._uncertain_orders[result.client_intent_id].resolved_status = result.status
+                    rec = self._uncertain_orders[result.client_intent_id]
+                    if result.status == OrderStatus.FILLED:
+                        rec.is_resolved = True
+                        rec.resolved_status = OrderStatus.FILLED
+                        rec.filled_quantity = total_filled
+                    elif result.status == OrderStatus.PARTIALLY_FILLED:
+                        rec.is_resolved = False
+                        rec.resolved_status = OrderStatus.PARTIALLY_FILLED
+                        rec.filled_quantity = total_filled
 
                 return True
 
@@ -423,8 +512,26 @@ class AccountLedger:
         try:
             remote_portfolio = client.get_portfolio()
             remote_cash = client.get_cash()
-            remote_orders_resp = client.get_orders(limit=50)
-            remote_orders = remote_orders_resp.get("orders", []) if isinstance(remote_orders_resp, dict) else []
+            remote_orders: list[dict[str, Any]] = []
+
+            # Fetch order history with pagination support
+            page = 1
+            max_pages = 5
+            while page <= max_pages:
+                try:
+                    resp = client.get_orders(page=page, limit=50)
+                except TypeError:
+                    # Fallback for test mocks that do not accept page argument
+                    resp = client.get_orders(limit=50)
+                    orders_page = resp.get("orders", []) if isinstance(resp, dict) else []
+                    remote_orders.extend(orders_page)
+                    break
+
+                orders_page = resp.get("orders", []) if isinstance(resp, dict) else []
+                remote_orders.extend(orders_page)
+                if len(orders_page) < 50:
+                    break
+                page += 1
         except (TradingApiError, RequestTimeoutError, Exception) as exc:
             logger.error("Reconciliation failed: Error contacting platform Trading API: %s", exc)
             return FullReconciliationReport(
@@ -450,26 +557,7 @@ class AccountLedger:
                 error_message=str(exc),
             )
 
-        # 2. Reconcile Positions
-        pos_report = reconcile_positions(self.get_positions(), remote_portfolio)
-        for ticker, disc in pos_report.discrepancies.items():
-            discrepancies.append(
-                f"POSITION_DISCREPANCY [{ticker}]: local={disc['local']}, remote={disc['remote']} (diff={disc['diff']})"
-            )
-        for ticker, qty in pos_report.missing_in_local.items():
-            discrepancies.append(f"POSITION_MISSING_IN_LOCAL [{ticker}]: remote has {qty} shares unaccounted in local")
-        for ticker, qty in pos_report.missing_in_remote.items():
-            discrepancies.append(f"POSITION_MISSING_IN_REMOTE [{ticker}]: local has {qty} shares not found in remote")
-
-        # 3. Reconcile Cash
-        cash_report = reconcile_cash(self.cash, remote_cash, tolerance=tolerance)
-        if not cash_report.is_synchronized:
-            discrepancies.append(
-                f"CASH_VARIANCE: local={cash_report.local_cash:.2f}, remote={cash_report.remote_cash:.2f} "
-                f"(variance={cash_report.variance:.2f} > tolerance={tolerance})"
-            )
-
-        # 4. Resolve Uncertain Orders via Authoritative Order History
+        # 2. Resolve Uncertain Orders via Authoritative Order History FIRST
         resolved_count = 0
         pending_count = 0
 
@@ -485,6 +573,12 @@ class AccountLedger:
                     for o in remote_orders:
                         if not isinstance(o, dict):
                             continue
+                        # Match by client_intent_id / client_order_id if available, else by ticker, action, quantity
+                        o_client_id = str(o.get("client_intent_id") or o.get("client_order_id") or o.get("tag") or "")
+                        if o_client_id and o_client_id == intent_id:
+                            matched_order = o
+                            break
+
                         o_ticker = str(o.get("ticker", "")).upper()
                         o_action = str(o.get("action", "")).upper()
                         o_qty = int(o.get("quantity", 0))
@@ -496,15 +590,175 @@ class AccountLedger:
                     if matched_order is not None:
                         raw_status = str(matched_order.get("status", "")).upper()
                         if raw_status in ("FILLED", "SUCCESS"):
+                            # Validate price and quantity before applying
+                            px_val = matched_order.get("price") if matched_order.get("price") is not None else matched_order.get("execution_price")
+                            try:
+                                fill_px = float(px_val) if px_val is not None else 0.0
+                            except (TypeError, ValueError):
+                                fill_px = 0.0
+
+                            qty_val = matched_order.get("filled_quantity") if matched_order.get("filled_quantity") is not None else matched_order.get("quantity", rec.quantity)
+                            try:
+                                remote_filled = int(qty_val) if qty_val is not None else rec.quantity
+                            except (TypeError, ValueError):
+                                remote_filled = 0
+
+                            if fill_px <= 0.0 or remote_filled <= 0:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INVALID_DETAILS [{intent_id}]: Cannot confirm FILLED details (px={px_val}, qty={qty_val})"
+                                )
+                                continue
+
+                            prev_filled = self._cumulative_fills_by_intent.get(intent_id, rec.filled_quantity)
+                            delta_qty = remote_filled - prev_filled
+
+                            if delta_qty < 0:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INCONSISTENT_DETAILS [{intent_id}]: remote filled {remote_filled} < local recorded {prev_filled}"
+                                )
+                                continue
+
+                            # Calculate delta charges
+                            charges_val = matched_order.get("charges") if matched_order.get("charges") is not None else matched_order.get("commission", 0.0)
+                            try:
+                                total_remote_charges = float(charges_val or 0.0)
+                            except (TypeError, ValueError):
+                                total_remote_charges = 0.0
+
+                            prev_charges = self._cumulative_charges_by_intent.get(intent_id, 0.0)
+                            delta_charges = max(0.0, total_remote_charges - prev_charges)
+
+                            if delta_qty > 0:
+                                fill_res = OrderResult(
+                                    client_intent_id=intent_id,
+                                    ticker=rec.ticker,
+                                    action=rec.action,
+                                    quantity=rec.quantity,
+                                    status=OrderStatus.FILLED,
+                                    order_id=str(matched_order.get("order_id") or matched_order.get("id") or ""),
+                                    execution_price=fill_px,
+                                    filled_quantity=remote_filled,
+                                    charges=delta_charges,
+                                    raw_response=matched_order,
+                                )
+                                self.process_execution_event(fill_res)
+
                             rec.is_resolved = True
                             rec.resolved_status = OrderStatus.FILLED
+                            rec.filled_quantity = remote_filled
                             resolved_count += 1
-                            logger.info("Reconciliation resolved uncertain order %s as FILLED.", intent_id)
+                            logger.info(
+                                "Reconciliation resolved uncertain order %s as FILLED (total=%d, delta=%d).",
+                                intent_id,
+                                remote_filled,
+                                delta_qty,
+                            )
+
+                        elif raw_status in ("PARTIALLY_FILLED", "PARTIAL_FILL", "PARTIAL"):
+                            # Validate remote partial fill details: must not infer price or quantity without sufficient evidence
+                            qty_val = matched_order.get("filled_quantity") if matched_order.get("filled_quantity") is not None else matched_order.get("filled_qty")
+                            if qty_val is None:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_MISSING_DETAILS [{intent_id}]: PARTIALLY_FILLED order missing filled_quantity"
+                                )
+                                continue
+
+                            try:
+                                remote_filled = int(qty_val)
+                            except (TypeError, ValueError):
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INVALID_DETAILS [{intent_id}]: Non-numeric filled_quantity '{qty_val}'"
+                                )
+                                continue
+
+                            if remote_filled <= 0 or remote_filled > rec.quantity:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INCONSISTENT_DETAILS [{intent_id}]: filled_quantity {remote_filled} invalid for total quantity {rec.quantity}"
+                                )
+                                continue
+
+                            px_val = matched_order.get("price") if matched_order.get("price") is not None else matched_order.get("execution_price")
+                            if px_val is None:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_MISSING_DETAILS [{intent_id}]: Missing execution price for partial fill"
+                                )
+                                continue
+
+                            try:
+                                fill_px = float(px_val)
+                            except (TypeError, ValueError):
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INVALID_DETAILS [{intent_id}]: Non-numeric execution price '{px_val}'"
+                                )
+                                continue
+
+                            if fill_px <= 0.0:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INVALID_DETAILS [{intent_id}]: Non-positive execution price {fill_px}"
+                                )
+                                continue
+
+                            prev_filled = self._cumulative_fills_by_intent.get(intent_id, rec.filled_quantity)
+                            if remote_filled < prev_filled:
+                                pending_count += 1
+                                discrepancies.append(
+                                    f"UNCERTAIN_ORDER_INCONSISTENT_DETAILS [{intent_id}]: remote filled {remote_filled} < local recorded {prev_filled}"
+                                )
+                                continue
+
+                            delta_qty = remote_filled - prev_filled
+                            charges_val = matched_order.get("charges") if matched_order.get("charges") is not None else matched_order.get("commission", 0.0)
+                            try:
+                                total_remote_charges = float(charges_val or 0.0)
+                            except (TypeError, ValueError):
+                                total_remote_charges = 0.0
+
+                            prev_charges = self._cumulative_charges_by_intent.get(intent_id, 0.0)
+                            delta_charges = max(0.0, total_remote_charges - prev_charges)
+
+                            # Apply newly confirmed execution delta if delta_qty > 0
+                            if delta_qty > 0:
+                                fill_res = OrderResult(
+                                    client_intent_id=intent_id,
+                                    ticker=rec.ticker,
+                                    action=rec.action,
+                                    quantity=rec.quantity,
+                                    status=OrderStatus.PARTIALLY_FILLED,
+                                    order_id=str(matched_order.get("order_id") or matched_order.get("id") or ""),
+                                    execution_price=fill_px,
+                                    filled_quantity=remote_filled,
+                                    charges=delta_charges,
+                                    raw_response=matched_order,
+                                )
+                                self.process_execution_event(fill_res)
+
+                            # Idempotently update uncertain record state: remaining quantity stays outstanding
+                            rec.is_resolved = False
+                            rec.resolved_status = OrderStatus.PARTIALLY_FILLED
+                            rec.filled_quantity = remote_filled
+                            pending_count += 1
+                            logger.info(
+                                "Reconciliation tracked partial fill for uncertain order %s: %d/%d filled (%d remaining, delta=%d).",
+                                intent_id,
+                                remote_filled,
+                                rec.quantity,
+                                rec.remaining_quantity,
+                                delta_qty,
+                            )
+
                         elif raw_status in ("REJECTED", "FAILED", "CANCELLED"):
                             rec.is_resolved = True
-                            rec.resolved_status = OrderStatus.REJECTED
+                            rec.resolved_status = OrderStatus.REJECTED if raw_status != "CANCELLED" else OrderStatus.CANCELLED
                             resolved_count += 1
-                            logger.info("Reconciliation resolved uncertain order %s as REJECTED.", intent_id)
+                            logger.info("Reconciliation resolved uncertain order %s as %s.", intent_id, rec.resolved_status.value)
                         else:
                             pending_count += 1
                             discrepancies.append(f"UNCERTAIN_ORDER_PENDING [{intent_id}]: Server status is '{raw_status}'")
@@ -514,6 +768,25 @@ class AccountLedger:
                 else:
                     pending_count += 1
                     discrepancies.append(f"UNCERTAIN_ORDER_PENDING [{intent_id}]")
+
+        # 3. Reconcile Positions against updated local ledger
+        pos_report = reconcile_positions(self.get_positions(), remote_portfolio)
+        for ticker, disc in pos_report.discrepancies.items():
+            discrepancies.append(
+                f"POSITION_DISCREPANCY [{ticker}]: local={disc['local']}, remote={disc['remote']} (diff={disc['diff']})"
+            )
+        for ticker, qty in pos_report.missing_in_local.items():
+            discrepancies.append(f"POSITION_MISSING_IN_LOCAL [{ticker}]: remote has {qty} shares unaccounted in local")
+        for ticker, qty in pos_report.missing_in_remote.items():
+            discrepancies.append(f"POSITION_MISSING_IN_REMOTE [{ticker}]: local has {qty} shares not found in remote")
+
+        # 4. Reconcile Cash against updated local ledger
+        cash_report = reconcile_cash(self.cash, remote_cash, tolerance=tolerance)
+        if not cash_report.is_synchronized:
+            discrepancies.append(
+                f"CASH_VARIANCE: local={cash_report.local_cash:.2f}, remote={cash_report.remote_cash:.2f} "
+                f"(variance={cash_report.variance:.2f} > tolerance={tolerance})"
+            )
 
         is_sync = pos_report.is_synchronized and cash_report.is_synchronized and (pending_count == 0)
 

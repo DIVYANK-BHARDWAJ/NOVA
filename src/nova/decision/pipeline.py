@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from execution.adapter import ExecutionAdapter
 from execution.accounting import AccountLedger
@@ -26,7 +26,8 @@ from nova.quant.contracts import (
     MarketBar,
     SignalDirection,
 )
-from nova.risk.gates import DeterministicRiskGate, RiskConfiguration, RiskGateResult
+if TYPE_CHECKING:
+    from nova.risk.gates import DeterministicRiskGate, RiskConfiguration, RiskGateResult
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +41,18 @@ class IntegratedTradingPipeline:
         risk_gate: Optional[DeterministicRiskGate] = None,
         ledger: Optional[AccountLedger] = None,
         default_target_exposure: float = 0.15,
+        decision_engine: Optional[Any] = None,
     ) -> None:
         self.adapter = adapter
-        self.risk_gate = risk_gate or DeterministicRiskGate(RiskConfiguration())
+        if risk_gate is None:
+            from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
+            risk_gate = DeterministicRiskGate(RiskConfiguration())
+        self.risk_gate = risk_gate
         self.ledger = ledger or getattr(adapter, "ledger", None)
         self.default_target_exposure = default_target_exposure
+        self.decision_engine = decision_engine
+        self._symbol_history: dict[str, list[MarketBar]] = {}
+        self._max_history: int = 500
 
         # Performance & audit counters
         self.signals_processed: int = 0
@@ -127,6 +135,8 @@ class IntegratedTradingPipeline:
             current_drawdown=current_dd,
             available_cash=avail_cash,
             current_portfolio_value=portfolio_val,
+            current_position_quantity=float(current_pos_shares),
+            current_market_price=float(bar.close),
         )
 
         if not risk_result.is_approved or risk_result.authorized_action in (ActionType.NO_TRADE, ActionType.HOLD):
@@ -176,6 +186,142 @@ class IntegratedTradingPipeline:
             self.orders_executed += 1
         return result
 
+    def handle_market_tick(
+        self,
+        event: Any,
+        as_of_time: Optional[datetime] = None,
+    ) -> Optional[OrderResult]:
+        """Process incoming MarketTickEvent through the full Sentinel decision and execution pipeline.
+
+        Converts raw tick to canonical MarketBar, maintains chronological monotonicity,
+        evaluates SentinelDecisionEngine (incorporating multi-strategy signals, causal ML prediction,
+        regime detection, friction economics, profit realization, and deterministic risk gating),
+        and routes the authorized decision through the ExecutionAdapter.
+        """
+        from nova.quant.contracts import MarketBar, TimestampSemantics, DataQualityStatus
+        from nova.research.adapters import market_tick_to_market_bar
+
+        bar: Optional[MarketBar] = None
+        if isinstance(event, MarketBar):
+            bar = event
+        elif isinstance(event, dict):
+            try:
+                data = event.get("data") if isinstance(event.get("data"), dict) else event
+                ticker = str(data.get("ticker") or data.get("symbol") or "").upper()
+                op = float(data.get("open", data.get("close", 0.0)))
+                hi = float(data.get("high", max(op, float(data.get("close", 0.0)))))
+                lo = float(data.get("low", min(op, float(data.get("close", 0.0)))))
+                cl = float(data.get("close", 0.0))
+                vol = float(data.get("volume", 1000.0))
+
+                ts_val = data.get("timestamp") or event.get("timestamp") or event.get("simulated_date")
+                if isinstance(ts_val, str):
+                    if len(ts_val) == 10:
+                        ts = datetime.strptime(ts_val, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    else:
+                        ts = datetime.fromisoformat(ts_val.replace("Z", "+00:00"))
+                elif isinstance(ts_val, datetime):
+                    ts = ts_val if ts_val.tzinfo else ts_val.replace(tzinfo=timezone.utc)
+                else:
+                    ts = datetime.now(timezone.utc)
+
+                bar = MarketBar(
+                    ticker=ticker,
+                    open=op,
+                    high=hi,
+                    low=lo,
+                    close=cl,
+                    volume=vol,
+                    source_timestamp=ts,
+                    available_timestamp=ts,
+                    timestamp_semantics=TimestampSemantics.CLOSE_TIME,
+                    data_quality=DataQualityStatus.VALID,
+                    provenance="dict_event",
+                )
+            except Exception as exc:
+                logger.warning("[PIPELINE:ADAPT_ERROR] Failed to convert tick dict to MarketBar: %s", exc)
+                return None
+        else:
+            try:
+                bar = market_tick_to_market_bar(event)
+            except Exception as exc:
+                logger.warning("[PIPELINE:ADAPT_ERROR] Failed to convert tick event to MarketBar: %s", exc)
+                return None
+
+        ticker = bar.ticker.upper()
+        if ticker not in self._symbol_history:
+            self._symbol_history[ticker] = []
+
+        history = self._symbol_history[ticker]
+
+        # Enforce chronological monotonicity: drop duplicates / out-of-order ticks
+        if history and bar.source_timestamp <= history[-1].source_timestamp:
+            logger.warning(
+                "[PIPELINE:DROP_TICK] Dropping out-of-order or duplicate tick for %s (%s <= %s)",
+                ticker,
+                bar.source_timestamp.isoformat(),
+                history[-1].source_timestamp.isoformat(),
+            )
+            return None
+
+        history.append(bar)
+        if len(history) > self._max_history:
+            self._symbol_history[ticker] = history[-self._max_history :]
+            history = self._symbol_history[ticker]
+
+        # If decision engine is wired, evaluate authoritative SentinelDecisionEngine
+        if self.decision_engine is not None:
+            portfolio_state = None
+            pos_state = None
+            avail_cash = 1_000_000.0
+            port_val = 1_000_000.0
+            dd = 0.0
+            pos_exposure = 0.0
+
+            if self.ledger is not None:
+                avail_cash = self.ledger.get_cash()
+                port_val = (
+                    self.ledger.get_portfolio_value({ticker: bar.close})
+                    if hasattr(self.ledger, "get_portfolio_value")
+                    else avail_cash
+                )
+                dd = (
+                    self.ledger.get_drawdown({ticker: bar.close})
+                    if hasattr(self.ledger, "get_drawdown")
+                    else 0.0
+                )
+                cur_qty = self.ledger.get_position(ticker)
+                pos_exposure = (cur_qty * bar.close) / max(port_val, 1e-4)
+
+                if hasattr(self.ledger, "get_portfolio_state"):
+                    portfolio_state = self.ledger.get_portfolio_state({ticker: bar.close})
+                    if portfolio_state and portfolio_state.positions:
+                        pos_state = portfolio_state.positions.get(ticker)
+
+            eval_time = as_of_time or bar.source_timestamp
+
+            try:
+                decision = self.decision_engine.evaluate_decision(
+                    bars=history,
+                    current_position_exposure=pos_exposure,
+                    current_drawdown=dd,
+                    available_cash=avail_cash,
+                    current_portfolio_value=port_val,
+                    as_of_time=eval_time,
+                    position_state=pos_state,
+                    portfolio_state=portfolio_state,
+                )
+                return self.process_trade_decision(decision, bar)
+            except Exception as exc:
+                logger.error("[PIPELINE:DECISION_ERROR] Exception in SentinelDecisionEngine for %s: %s", ticker, exc, exc_info=True)
+                return None
+
+        return None
+
+    def __call__(self, event: Any) -> Optional[OrderResult]:
+        """Callable interface allowing direct subscription to EventDispatcher."""
+        return self.handle_market_tick(event)
+
     def process_trade_decision(
         self,
         decision: TradeDecision,
@@ -203,4 +349,7 @@ class IntegratedTradingPipeline:
         )
         if result and result.status.value in ("FILLED", "PARTIALLY_FILLED", "PENDING", "SUBMITTED"):
             self.orders_executed += 1
+            self.orders_authorized += 1
+        elif result is None:
+            self.orders_vetoed += 1
         return result

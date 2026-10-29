@@ -121,6 +121,9 @@ class ManthanTradingBot:
         adapter: Optional[ExecutionAdapter] = None,
         heartbeat_worker: Optional[HeartbeatWorker] = None,
         risk_gate: Optional[Any] = None,
+        decision_engine: Optional[Any] = None,
+        pipeline: Optional[Any] = None,
+        mock_mode: bool = False,
     ) -> None:
         self.gateway = gateway.rstrip("/")
         self.broker = broker
@@ -132,6 +135,9 @@ class ManthanTradingBot:
         self.adapter = adapter
         self.heartbeat_worker = heartbeat_worker
         self.risk_gate = risk_gate
+        self.decision_engine = decision_engine
+        self.pipeline = pipeline
+        self.mock_mode = mock_mode
 
         self.tradable_tickers: set[str] = set()
         self.price_history: dict[str, list[float]] = {}
@@ -147,6 +153,10 @@ class ManthanTradingBot:
             except Exception as exc:
                 logger.warning("[UNIVERSE] Failed to fetch universe via adapter: %s", exc)
 
+        if self.mock_mode:
+            self.tradable_tickers = {"ALPHACORP"}
+            return self.tradable_tickers
+
         url = f"{self.gateway}/api/v1/stocks"
         resp = send_http_request(url, token=self.token)
         if resp and isinstance(resp, dict):
@@ -161,6 +171,14 @@ class ManthanTradingBot:
 
     def handle_preflight(self, seq: int | str) -> bool:
         """Enqueue preflight heartbeat sequence number for non-blocking acknowledgement."""
+        if self.mock_mode:
+            logger.info("[MOCK] Heartbeat seq=%s acknowledged in mock mode (remote HTTP call skipped).", seq)
+            try:
+                self.last_heartbeat_seq = int(seq)
+            except (ValueError, TypeError):
+                self.last_heartbeat_seq = 1
+            return True
+
         if self.heartbeat_worker is not None:
             return self.heartbeat_worker.enqueue_heartbeat(seq)
 
@@ -175,6 +193,7 @@ class ManthanTradingBot:
         action: str,
         quantity: int,
         authorized_by_risk: bool = False,
+        market_price: float = 0.0,
     ) -> Optional[OrderResult]:
         """Submit order strictly through ExecutionAdapter and Risk Gateway authorization.
 
@@ -186,11 +205,19 @@ class ManthanTradingBot:
             avail_cash = 1_000_000.0
             port_val = 1_000_000.0
             dd = 0.0
+            current_pos = 0.0
             if self.adapter and self.adapter.ledger:
                 summary = self.adapter.ledger.get_portfolio_summary()
                 avail_cash = summary.available_cash
                 port_val = summary.total_portfolio_value
                 dd = summary.drawdown_fraction
+                current_pos = float(self.adapter.ledger.get_position(ticker))
+
+            effective_market_price = (
+                float(market_price)
+                if market_price > 0
+                else (self.price_history.get(ticker.upper(), [0.0])[-1] if self.price_history.get(ticker.upper()) else 0.0)
+            )
 
             try:
                 from nova.decision.contracts import ActionType
@@ -205,6 +232,8 @@ class ManthanTradingBot:
                     current_drawdown=dd,
                     available_cash=avail_cash,
                     current_portfolio_value=port_val,
+                    current_position_quantity=current_pos,
+                    current_market_price=effective_market_price,
                 )
                 if risk_eval.is_approved:
                     authorized_by_risk = True
@@ -242,11 +271,16 @@ class ManthanTradingBot:
         return self.adapter.execute_order(intent)
 
     def handle_price_tick(self, event: dict[str, Any]) -> None:
-        """Process price tick according to Moving Average Crossover strategy."""
+        """Process price tick through the integrated SentinelDecisionEngine pipeline."""
+        # 1. If integrated pipeline is attached, delegate authoritative decision and execution
+        if self.pipeline is not None:
+            self.pipeline.handle_market_tick(event)
+            return
+
+        # 2. Fallback diagnostic history tracking if running standalone without pipeline
         data = event.get("data") or event
         ticker = data.get("ticker") or data.get("symbol")
         close_px = data.get("close")
-        sim_date = event.get("simulated_date") or data.get("date") or "N/A"
 
         if not ticker or close_px is None:
             return
@@ -257,50 +291,13 @@ class ManthanTradingBot:
         if ticker not in self.price_history:
             self.price_history[ticker] = []
         self.price_history[ticker].append(close_px)
-        history = self.price_history[ticker]
-
-        if len(history) < self.slow_window + 1:
-            logger.debug(
-                "[%s] Collecting history: %d/%d bars for MA crossover.",
-                ticker,
-                len(history),
-                self.slow_window,
-            )
-            return
-
-        avg_fast = sum(history[-self.fast_window :]) / float(self.fast_window)
-        avg_slow = sum(history[-self.slow_window :]) / float(self.slow_window)
-        prev_fast = sum(history[-self.fast_window - 1 : -1]) / float(self.fast_window)
-        prev_slow = sum(history[-self.slow_window - 1 : -1]) / float(self.slow_window)
-
-        current_qty = self.holdings.get(ticker, 0)
-
-        # BUY SIGNAL: Fast MA crosses ABOVE Slow MA
-        if prev_fast <= prev_slow and avg_fast > avg_slow:
-            logger.info(
-                "[STRATEGY:GOLDEN_CROSS] %s: Fast(%.2f) crossed ABOVE Slow(%.2f) -> BUY",
-                ticker,
-                avg_fast,
-                avg_slow,
-            )
-            # Route through submit_order with risk gate check
-            self.submit_order(ticker, action="BUY", quantity=self.batch_quantity, authorized_by_risk=False)
-
-        # SELL SIGNAL: Fast MA crosses BELOW Slow MA
-        elif prev_fast >= prev_slow and avg_fast < avg_slow:
-            if current_qty > 0:
-                logger.info(
-                    "[STRATEGY:DEATH_CROSS] %s: Fast(%.2f) crossed BELOW Slow(%.2f) -> SELL",
-                    ticker,
-                    avg_fast,
-                    avg_slow,
-                )
-                self.submit_order(ticker, action="SELL", quantity=current_qty, authorized_by_risk=False)
-            else:
-                logger.debug("[%s] Bearish crossover, but position flat (Holdings=0)", ticker)
 
     def handle_news_flash(self, event: dict[str, Any]) -> None:
-        """Process news announcement according to Beginner's Guide Keyword Strategy."""
+        """Process news announcement for sentiment observability.
+
+        Adheres to Person 3 specification: Raw news headlines do not bypass
+        the integrated SentinelDecisionEngine or trigger un-gated live orders.
+        """
         data = event.get("data") or event
         headline = (data.get("headline") or "").upper()
         ticker = data.get("ticker") or data.get("symbol")
@@ -319,13 +316,6 @@ class ManthanTradingBot:
             neg_matches,
         )
 
-        if len(pos_matches) > len(neg_matches):
-            logger.info("[NEWS SIGNAL:BUY] Triggered by bullish keywords: %s", pos_matches)
-            self.submit_order(ticker, action="BUY", quantity=self.batch_quantity, authorized_by_risk=False)
-        elif len(neg_matches) > len(pos_matches):
-            logger.info("[NEWS SIGNAL:SHORT] Triggered by bearish keywords: %s", neg_matches)
-            self.submit_order(ticker, action="SHORT", quantity=self.batch_quantity, authorized_by_risk=False)
-
 
 def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Optional[Path] = None) -> int:
     """Run bot in either offline mock simulation mode or live production mode."""
@@ -333,6 +323,78 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
         print("=" * 78)
         print("MANTHAN 2026 -- NOVA OFFLINE MOCK MODE VALIDATION")
         print("=" * 78)
+
+        from unittest.mock import MagicMock
+        from execution.models import SimulationStage, StockInfo, OrderStatus, OrderResult, OrderAction
+        from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
+        from nova.decision.engine import DecisionEngineConfig, SentinelDecisionEngine
+        from nova.decision.prediction import CausalRidgePredictor
+        from nova.decision.regime import MarketRegimeDetector
+        from nova.friction.models import MarketFrictionEngine
+        from nova.portfolio.profit_realization import ProfitRealizationManager
+        from nova.strategies.trend_following import TrendFollowingStrategy
+        from nova.strategies.mean_reversion import MeanReversionStrategy
+        from nova.decision.pipeline import IntegratedTradingPipeline
+
+        mock_client = MagicMock(spec=TradingApiClient)
+        mock_client.get_stage.return_value = SimulationStage(
+            stage="competition",
+            status="running",
+            tickers=["ALPHACORP"],
+            ticker_count=1,
+            current_date="2021-01-04",
+            days_completed=1,
+            total_days=500,
+        )
+        mock_client.get_stocks.return_value = [
+            StockInfo(symbol="ALPHACORP", ticker="ALPHACORP", name="AlphaCorp Inc")
+        ]
+        mock_client.submit_order.return_value = {
+            "order_id": "mock_ord_001",
+            "ticker": "ALPHACORP",
+            "action": "BUY",
+            "quantity": 50,
+            "status": "FILLED",
+            "execution_price": 1000.0,
+            "charges": 20.0,
+        }
+
+        mock_ledger = AccountLedger(initial_cash=1_000_000.0)
+        mock_adapter = ExecutionAdapter(
+            client=mock_client,
+            config=ExecutionConfig(
+                bot_access_token="mock_token",
+                stage_cache_ttl_seconds=0.0,
+                stocks_cache_ttl_seconds=0.0,
+            ),
+            ledger=mock_ledger,
+        )
+        mock_risk = DeterministicRiskGate(RiskConfiguration(allow_short=False))
+        mock_engine = SentinelDecisionEngine(
+            config=DecisionEngineConfig(
+                trend_weight=0.50,
+                mean_reversion_weight=0.50,
+                min_net_edge_bps=1.0,
+                target_exposure=0.15,
+                allow_short=False,
+                use_regime_weighting=True,
+                initial_capital=1_000_000.0,
+            ),
+            trend_strategy=TrendFollowingStrategy(),
+            mean_reversion_strategy=MeanReversionStrategy(),
+            friction_engine=MarketFrictionEngine(),
+            risk_gate=mock_risk,
+            predictor=CausalRidgePredictor(),
+            regime_detector=MarketRegimeDetector(),
+            profit_realization_manager=ProfitRealizationManager(),
+        )
+        mock_pipeline = IntegratedTradingPipeline(
+            adapter=mock_adapter,
+            risk_gate=mock_risk,
+            ledger=mock_ledger,
+            decision_engine=mock_engine,
+        )
+
         bot = ManthanTradingBot(
             gateway="http://192.168.65.157:3002",
             broker="192.168.65.157:9094",
@@ -341,6 +403,11 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
             fast_window=5,
             slow_window=20,
             batch_quantity=50,
+            adapter=mock_adapter,
+            risk_gate=mock_risk,
+            decision_engine=mock_engine,
+            pipeline=mock_pipeline,
+            mock_mode=True,
         )
 
         # 1. Simulate Preflight Heartbeat
@@ -540,23 +607,67 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
     lifecycle_monitor.start()
     logger.info("[LIFECYCLE:INIT] LifecycleMonitor active (polling every 3.0s).")
 
-    # 8. Connect Person 3 Sentinel / Risk Gate
+    # 8. Connect Person 3 Sentinel Decision Engine and Risk Gate
     risk_gate = None
+    decision_engine = None
     try:
         from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
+        from nova.decision.engine import DecisionEngineConfig, SentinelDecisionEngine
+        from nova.decision.prediction import CausalRidgePredictor
+        from nova.decision.regime import MarketRegimeDetector
+        from nova.friction.models import MarketFrictionEngine
+        from nova.portfolio.profit_realization import ProfitRealizationManager
+        from nova.strategies.trend_following import TrendFollowingStrategy
+        from nova.strategies.mean_reversion import MeanReversionStrategy
+
         risk_cfg = RiskConfiguration()
         risk_gate = DeterministicRiskGate(risk_cfg)
-        logger.info("[RISK:INIT] Person 3 Risk Gates loaded (version=%s). Pre-trade gate armed.", risk_cfg.config_version)
-    except Exception as exc:
-        logger.debug("[RISK:INIT] Person 3 risk module notice: %s", exc)
 
-    # 9. Connect Integrated Trading Pipeline & Person 2 Strategy Connector
+        engine_cfg = DecisionEngineConfig(
+            trend_weight=0.50,
+            mean_reversion_weight=0.50,
+            min_net_edge_bps=2.0,
+            target_exposure=0.15,
+            allow_short=False,
+            use_regime_weighting=True,
+            initial_capital=initial_cash,
+        )
+        decision_engine = SentinelDecisionEngine(
+            config=engine_cfg,
+            trend_strategy=TrendFollowingStrategy(),
+            mean_reversion_strategy=MeanReversionStrategy(),
+            friction_engine=MarketFrictionEngine(),
+            risk_gate=risk_gate,
+            predictor=CausalRidgePredictor(),
+            regime_detector=MarketRegimeDetector(),
+            profit_realization_manager=ProfitRealizationManager(),
+        )
+        logger.info(
+            "[DECISION:INIT] SentinelDecisionEngine armed (version=%s, risk_gate=%s).",
+            engine_cfg.engine_version,
+            risk_cfg.config_version,
+        )
+    except Exception as exc:
+        logger.warning("[DECISION:INIT] SentinelDecisionEngine initialization notice: %s", exc)
+
+    # 9. Connect Integrated Trading Pipeline & Strategy Connectors
     try:
+        from nova.decision.pipeline import IntegratedTradingPipeline
         from nova.research.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
         from nova.research.kafka_connector import KafkaStrategyConnector
-        from nova.decision.pipeline import IntegratedTradingPipeline
 
-        pipeline = IntegratedTradingPipeline(adapter=adapter, risk_gate=risk_gate, ledger=ledger)
+        pipeline = IntegratedTradingPipeline(
+            adapter=adapter,
+            risk_gate=risk_gate,
+            ledger=ledger,
+            decision_engine=decision_engine,
+        )
+
+        # Primary decision path: subscribe pipeline directly to market ticks
+        dispatcher.subscribe_tick(pipeline.handle_market_tick)
+        logger.info("[PIPELINE:INIT] IntegratedTradingPipeline connected to SentinelDecisionEngine and EventDispatcher.")
+
+        # Secondary research path: optional Person 2 EMA crossover candidate signal evaluation
         strat_cfg = EMACrossoverConfig(fast_window=12, slow_window=26, allow_short=False)
         strategy = EMACrossoverStrategy(config=strat_cfg)
         connector = KafkaStrategyConnector(
@@ -564,9 +675,9 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
             on_candidate_signal=pipeline.process_candidate_signal,
         )
         dispatcher.subscribe_tick(connector.handle_market_tick)
-        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected to IntegratedTradingPipeline.")
+        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected as secondary analytical listener.")
     except Exception as exc:
-        logger.info("[STRATEGY:INIT] Strategy module not loaded: %s", exc)
+        logger.warning("[PIPELINE:INIT] Pipeline initialization notice: %s", exc)
 
     # 10. Start Kafka Consumer Loop (Step G disconnect backoff)
     consumer = MarketDataConsumer(config=k_config, dispatcher=dispatcher)

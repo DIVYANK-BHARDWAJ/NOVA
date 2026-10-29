@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import uuid
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from nova.decision.contracts import (
     ActionType,
@@ -33,7 +33,8 @@ from nova.quant.contracts import (
     validate_finite,
     validate_timezone_aware,
 )
-from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
+if TYPE_CHECKING:
+    from nova.risk.gates import DeterministicRiskGate
 from nova.strategies.base import StrategySignal
 from nova.strategies.mean_reversion import MeanReversionConfig, MeanReversionStrategy
 from nova.strategies.trend_following import TrendFollowingConfig, TrendFollowingStrategy
@@ -110,7 +111,10 @@ class SentinelDecisionEngine:
         self.trend_strategy = trend_strategy or TrendFollowingStrategy()
         self.mean_reversion_strategy = mean_reversion_strategy or MeanReversionStrategy()
         self.friction_engine = friction_engine or MarketFrictionEngine()
-        self.risk_gate = risk_gate or DeterministicRiskGate()
+        if risk_gate is None:
+            from nova.risk.gates import DeterministicRiskGate
+            risk_gate = DeterministicRiskGate()
+        self.risk_gate = risk_gate
         self.predictor = predictor
         self.regime_detector = regime_detector
         self.profit_realization_manager = profit_realization_manager or ProfitRealizationManager(

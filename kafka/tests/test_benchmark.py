@@ -1,6 +1,12 @@
 """Test for synthetic benchmark execution and metric verification."""
 
-from tests.benchmark_ingestion import run_benchmark
+try:
+    from tests.benchmark_ingestion import run_benchmark
+except (ImportError, ModuleNotFoundError):
+    try:
+        from kafka.tests.benchmark_ingestion import run_benchmark
+    except (ImportError, ModuleNotFoundError):
+        from benchmark_ingestion import run_benchmark
 
 
 def test_synthetic_benchmark_execution():

@@ -16,5 +16,5 @@ include = ["src", "tests", "scripts", "kafka/src"]
 extraPaths = ["src", "kafka/src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src", "kafka/src"]
+testpaths = ["kafka/tests", "execution/tests", "tests"]
+pythonpath = ["src", "kafka/src", "execution/src", "."]

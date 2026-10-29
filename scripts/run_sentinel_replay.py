@@ -9,14 +9,18 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
-import os
+from pathlib import Path
 import sys
 
-# Ensure src is on python path
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "src"))
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+# Ensure all repository source roots are on sys.path
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SRC_DIR = REPO_ROOT / "src"
+EXECUTION_SRC = REPO_ROOT / "execution" / "src"
+KAFKA_SRC = REPO_ROOT / "kafka" / "src"
+
+for d in (KAFKA_SRC, EXECUTION_SRC, SRC_DIR, REPO_ROOT):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
 
 from nova.decision.engine import DecisionEngineConfig, SentinelDecisionEngine
 from nova.evaluation.replay import ChronologicalReplayEngine, ReplaySummary

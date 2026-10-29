@@ -484,6 +484,8 @@ class ExecutionAdapter:
             status = OrderStatus.PARTIALLY_FILLED
         elif raw_status in ("REJECTED", "FAILED"):
             status = OrderStatus.REJECTED
+        elif raw_status in ("CANCELLED", "CANCELED"):
+            status = OrderStatus.CANCELLED
         else:
             logger.warning("Unrecognized order status '%s' in API response. Marking PENDING.", raw_status)
             status = OrderStatus.PENDING
@@ -496,7 +498,15 @@ class ExecutionAdapter:
                 exec_price = None
 
         charges = float(order_obj.get("charges") or order_obj.get("commission") or 0.0)
-        filled_qty = int(order_obj.get("filled_quantity", intent.quantity if status == OrderStatus.FILLED else 0))
+        raw_filled = order_obj.get("filled_quantity") or order_obj.get("filled_qty")
+        if raw_filled is not None:
+            filled_qty = int(raw_filled)
+        elif status == OrderStatus.FILLED:
+            filled_qty = intent.quantity
+        elif status == OrderStatus.PARTIALLY_FILLED:
+            filled_qty = int(order_obj.get("quantity", 0))
+        else:
+            filled_qty = 0
 
         result = OrderResult(
             client_intent_id=intent.intent_id,
@@ -511,7 +521,16 @@ class ExecutionAdapter:
             raw_response=resp,
         )
 
-        event_name = "ORDER_FILLED" if status == OrderStatus.FILLED else "ORDER_ACCEPTED"
+        if status == OrderStatus.FILLED:
+            event_name = "ORDER_FILLED"
+        elif status == OrderStatus.PARTIALLY_FILLED:
+            event_name = "ORDER_PARTIALLY_FILLED"
+        elif status == OrderStatus.REJECTED:
+            event_name = "ORDER_REJECTED"
+        elif status == OrderStatus.CANCELLED:
+            event_name = "ORDER_CANCELLED"
+        else:
+            event_name = "ORDER_ACCEPTED"
         self._emit_event(event_name, result)
         return result
 
