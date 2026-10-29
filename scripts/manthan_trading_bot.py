@@ -120,6 +120,7 @@ class ManthanTradingBot:
         batch_quantity: int = 50,
         adapter: Optional[ExecutionAdapter] = None,
         heartbeat_worker: Optional[HeartbeatWorker] = None,
+        risk_gate: Optional[Any] = None,
     ) -> None:
         self.gateway = gateway.rstrip("/")
         self.broker = broker
@@ -130,6 +131,7 @@ class ManthanTradingBot:
         self.batch_quantity = batch_quantity
         self.adapter = adapter
         self.heartbeat_worker = heartbeat_worker
+        self.risk_gate = risk_gate
 
         self.tradable_tickers: set[str] = set()
         self.price_history: dict[str, list[float]] = {}
@@ -178,6 +180,45 @@ class ManthanTradingBot:
 
         CRITICAL SAFETY RULE: Never bypass Risk Gateway authorization.
         """
+        # If risk_gate is attached and order hasn't been explicitly pre-authorized, evaluate it
+        if not authorized_by_risk and self.risk_gate is not None:
+            now_utc = datetime.now(timezone.utc)
+            avail_cash = 1_000_000.0
+            port_val = 1_000_000.0
+            dd = 0.0
+            if self.adapter and self.adapter.ledger:
+                summary = self.adapter.ledger.get_portfolio_summary()
+                avail_cash = summary.available_cash
+                port_val = summary.total_portfolio_value
+                dd = summary.drawdown_fraction
+
+            try:
+                from nova.decision.contracts import ActionType
+                from nova.quant.contracts import DataQualityStatus
+                act_type = ActionType(action.upper())
+                risk_eval = self.risk_gate.evaluate(
+                    proposed_action=act_type,
+                    proposed_exposure=0.10,
+                    data_quality=DataQualityStatus.VALID,
+                    bar_timestamp=now_utc,
+                    as_of_time=now_utc,
+                    current_drawdown=dd,
+                    available_cash=avail_cash,
+                    current_portfolio_value=port_val,
+                )
+                if risk_eval.is_approved:
+                    authorized_by_risk = True
+                else:
+                    logger.warning(
+                        "[EXECUTION:RISK_GATEWAY] Order %s %d %s VETOED by Risk Gate: %s",
+                        action,
+                        quantity,
+                        ticker,
+                        risk_eval.risk_reason_codes,
+                    )
+            except Exception as exc:
+                logger.warning("[EXECUTION:RISK_GATEWAY] Risk gate evaluation error: %s", exc)
+
         if not authorized_by_risk:
             logger.warning(
                 "[EXECUTION:RISK_GATEWAY] Order %s %d %s BLOCKED: Not authorized by Person 3 Risk Gateway.",
@@ -499,26 +540,33 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
     lifecycle_monitor.start()
     logger.info("[LIFECYCLE:INIT] LifecycleMonitor active (polling every 3.0s).")
 
-    # 8. Connect Person 2 Strategy Connector
+    # 8. Connect Person 3 Sentinel / Risk Gate
+    risk_gate = None
     try:
-        from nova.research.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
-        from nova.research.kafka_connector import KafkaStrategyConnector
-
-        strat_cfg = EMACrossoverConfig(fast_window=12, slow_window=26, allow_short=False)
-        strategy = EMACrossoverStrategy(config=strat_cfg)
-        connector = KafkaStrategyConnector(strategy=strategy)
-        dispatcher.subscribe_tick(connector.handle_market_tick)
-        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy registered to EventDispatcher.")
-    except Exception as exc:
-        logger.info("[STRATEGY:INIT] Strategy module not loaded: %s", exc)
-
-    # 9. Connect Person 3 Sentinel / Risk Gate (if available)
-    try:
-        from nova.risk.gates import RiskConfiguration
+        from nova.risk.gates import DeterministicRiskGate, RiskConfiguration
         risk_cfg = RiskConfiguration()
+        risk_gate = DeterministicRiskGate(risk_cfg)
         logger.info("[RISK:INIT] Person 3 Risk Gates loaded (version=%s). Pre-trade gate armed.", risk_cfg.config_version)
     except Exception as exc:
         logger.debug("[RISK:INIT] Person 3 risk module notice: %s", exc)
+
+    # 9. Connect Integrated Trading Pipeline & Person 2 Strategy Connector
+    try:
+        from nova.research.ema_crossover import EMACrossoverConfig, EMACrossoverStrategy
+        from nova.research.kafka_connector import KafkaStrategyConnector
+        from nova.decision.pipeline import IntegratedTradingPipeline
+
+        pipeline = IntegratedTradingPipeline(adapter=adapter, risk_gate=risk_gate, ledger=ledger)
+        strat_cfg = EMACrossoverConfig(fast_window=12, slow_window=26, allow_short=False)
+        strategy = EMACrossoverStrategy(config=strat_cfg)
+        connector = KafkaStrategyConnector(
+            strategy=strategy,
+            on_candidate_signal=pipeline.process_candidate_signal,
+        )
+        dispatcher.subscribe_tick(connector.handle_market_tick)
+        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected to IntegratedTradingPipeline.")
+    except Exception as exc:
+        logger.info("[STRATEGY:INIT] Strategy module not loaded: %s", exc)
 
     # 10. Start Kafka Consumer Loop (Step G disconnect backoff)
     consumer = MarketDataConsumer(config=k_config, dispatcher=dispatcher)

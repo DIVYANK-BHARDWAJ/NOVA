@@ -195,18 +195,20 @@ class AccountLedger:
         self.positions: dict[str, PositionLedgerEntry] = {}
         self.total_charges: float = 0.0
         self.total_realized_pnl: float = 0.0
+        self._peak_portfolio_value: float = float(initial_cash)
 
         # Idempotency and fill tracking
         self._processed_event_ids: set[str] = set()
         self._cumulative_fills_by_intent: dict[str, int] = {}
         self._uncertain_orders: dict[str, UncertainOrderRecord] = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def reset(self, initial_cash: float = 0.0) -> None:
         """Reset ledger state to initial conditions."""
         with self._lock:
             self.initial_cash = float(initial_cash)
             self.cash = float(initial_cash)
+            self._peak_portfolio_value = float(initial_cash)
             self.positions.clear()
             self.total_charges = 0.0
             self.total_realized_pnl = 0.0
@@ -223,10 +225,43 @@ class AccountLedger:
                 if entry.quantity != 0
             }
 
+    def get_position(self, ticker: str) -> int:
+        """Return held share quantity for a specific ticker symbol."""
+        with self._lock:
+            entry = self.positions.get(ticker.upper())
+            return entry.quantity if entry is not None else 0
+
     def get_cash(self) -> float:
         """Return current tracked cash balance."""
         with self._lock:
             return self.cash
+
+    def get_portfolio_value(self, current_prices: Optional[dict[str, float]] = None) -> float:
+        """Calculate total portfolio value based on cash and position market values."""
+        with self._lock:
+            val = self.cash
+            prices = current_prices or {}
+            for ticker, entry in self.positions.items():
+                if entry.quantity != 0:
+                    px = prices.get(ticker.upper(), entry.avg_price)
+                    val += entry.quantity * px
+            return val
+
+    def get_drawdown(self, current_prices: Optional[dict[str, float]] = None) -> float:
+        """Return current drawdown fraction relative to peak portfolio value."""
+        with self._lock:
+            current_val = self.get_portfolio_value(current_prices)
+            if self._peak_portfolio_value <= 0.0:
+                return 0.0
+            if current_val >= self._peak_portfolio_value:
+                self._peak_portfolio_value = current_val
+                return 0.0
+            return (self._peak_portfolio_value - current_val) / self._peak_portfolio_value
+
+    def set_peak_portfolio_value(self, peak_value: float) -> None:
+        """Explicitly set peak portfolio value for stress-testing drawdown circuit breakers."""
+        with self._lock:
+            self._peak_portfolio_value = float(peak_value)
 
     def get_uncertain_orders(self) -> list[UncertainOrderRecord]:
         """Return all uncertain order records."""

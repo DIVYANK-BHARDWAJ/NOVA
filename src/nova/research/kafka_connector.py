@@ -15,7 +15,7 @@ import collections
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from nova.quant.contracts import (
     CandidateSignal,
@@ -66,9 +66,11 @@ class KafkaStrategyConnector:
         self,
         strategy: EMACrossoverStrategy,
         max_history_per_symbol: int = 500,
+        on_candidate_signal: Optional[Callable[[CandidateSignal, MarketBar], None]] = None,
     ) -> None:
         self.strategy = strategy
         self.max_history_per_symbol = max_history_per_symbol
+        self.on_candidate_signal = on_candidate_signal
         self._history: dict[str, list[MarketBar]] = collections.defaultdict(list)
         self._metrics = ConnectorMetrics()
         self.last_evaluation_by_symbol: dict[str, StrategyEvaluation] = {}
@@ -148,6 +150,12 @@ class KafkaStrategyConnector:
             else:
                 self._metrics.neutral_signals_count += 1
             self.last_candidate_by_symbol[symbol] = eval_result.candidate
+
+            if self.on_candidate_signal is not None:
+                try:
+                    self.on_candidate_signal(eval_result.candidate, bar)
+                except Exception as exc:
+                    logger.error("Exception in on_candidate_signal callback for %s: %s", symbol, exc, exc_info=True)
         elif eval_result.status == EvaluationStatus.ABSTAIN_INSUFFICIENT_HISTORY:
             self._metrics.warmup_abstentions_count += 1
         elif eval_result.status == EvaluationStatus.ABSTAIN_UNRELIABLE_DATA:

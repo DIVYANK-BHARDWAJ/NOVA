@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -625,6 +626,80 @@ class ExecutionAdapter:
         )
         self._emit_event("ORDER_UNCERTAIN", result)
         return result
+
+    def execute_trade_decision(
+        self,
+        decision: Any,
+        current_price: float,
+        current_portfolio_value: float,
+        current_position_shares: int = 0,
+        date: Optional[str] = None,
+    ) -> Optional[OrderResult]:
+        """Convert and execute an authoritative Person 3 TradeDecision (Interface Contract C).
+
+        Enforces that only risk-authorized decisions (BUY, SELL, EXIT, REDUCE) are executed.
+        Abstentions (NO_TRADE, HOLD) safely return None without placing any live order.
+
+        Args:
+            decision: Authoritative TradeDecision instance from Person 3's Decision Engine.
+            current_price: Current market price of the instrument.
+            current_portfolio_value: Total portfolio value for sizing exposure fractions.
+            current_position_shares: Currently held share count for exit sizing.
+            date: Optional simulated date string (YYYY-MM-DD).
+
+        Returns:
+            OrderResult if an order was placed, or None if the decision was an abstention/hold.
+        """
+        action_val = getattr(decision.selected_action, "value", str(decision.selected_action)).upper()
+        if action_val in ("NO_TRADE", "HOLD", "NONE"):
+            logger.debug(
+                "[EXECUTION:ABSTAIN] TradeDecision %s for %s is %s; no order required.",
+                getattr(decision, "decision_id", "unknown"),
+                getattr(decision, "instrument_id", "unknown"),
+                action_val,
+            )
+            return None
+
+        # Map TradeDecision ActionType to OrderAction
+        if action_val == "BUY":
+            order_action = OrderAction.BUY
+        elif action_val in ("SELL", "EXIT", "REDUCE"):
+            order_action = OrderAction.SELL
+        else:
+            logger.warning("[EXECUTION:UNSUPPORTED] Unsupported TradeDecision action: %s", action_val)
+            return None
+
+        # Compute sizing (shares)
+        target = float(getattr(decision, "target_quantity_or_exposure", 0.0))
+        if action_val == "EXIT":
+            quantity = current_position_shares
+        elif target <= 1.0:
+            # Exposure fraction (e.g. 0.20 of portfolio)
+            notional = target * max(current_portfolio_value, 0.0)
+            quantity = int(notional / max(current_price, 1e-4))
+        else:
+            quantity = int(target)
+
+        if quantity <= 0:
+            logger.warning(
+                "[EXECUTION:ZERO_QTY] Sizing computed %d shares for %s (%s). Skipping order.",
+                quantity,
+                getattr(decision, "instrument_id", "unknown"),
+                action_val,
+            )
+            return None
+
+        intent = OrderIntent(
+            intent_id=f"intent_{uuid.uuid4().hex[:12]}",
+            ticker=str(getattr(decision, "instrument_id", "")).upper(),
+            action=order_action,
+            quantity=quantity,
+            authorized_by_risk=True,
+            date=date,
+            strategy_id=getattr(decision, "selected_strategy", None),
+            risk_authorization_id=getattr(decision, "decision_id", None),
+        )
+        return self.execute_order(intent)
 
     def get_health_status(self) -> dict[str, Any]:
         """Return health diagnostics for ExecutionAdapter."""

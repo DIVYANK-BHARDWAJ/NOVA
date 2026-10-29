@@ -16,6 +16,8 @@ from nova.decision.regime import (
     RegimeOutput,
 )
 
+from nova.decision.pipeline import IntegratedTradingPipeline
+
 __all__ = [
     "ActionType",
     "OrderType",
@@ -32,4 +34,5 @@ __all__ = [
     "MarketRegimeType",
     "RegimeConfig",
     "RegimeOutput",
+    "IntegratedTradingPipeline",
 ]
