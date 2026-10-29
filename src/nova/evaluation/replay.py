@@ -102,6 +102,54 @@ class ReplaySummary:
         print(f"Risk Gate Violations:       {self.risk_violations}")
         print("=" * 78)
 
+    @property
+    def metrics(self) -> PerformanceMetrics:
+        """Lazily computed comprehensive performance metrics suite."""
+        from nova.evaluation.metrics import compute_performance_metrics, PerformanceMetrics
+        init_cap = max(1e-4, self.final_wealth_inr - self.net_pnl_inr)
+        m = compute_performance_metrics(
+            steps=self.steps,
+            initial_capital=init_cap,
+            benchmark_return=self.benchmark_buy_and_hold_return,
+            risk_violations=self.risk_violations,
+        )
+        return PerformanceMetrics(
+            net_cumulative_return=self.net_cumulative_return,
+            gross_cumulative_return=self.gross_cumulative_return,
+            net_pnl_inr=self.net_pnl_inr,
+            total_realized_pnl_inr=self.total_realized_pnl if self.total_realized_pnl != 0.0 else m.total_realized_pnl_inr,
+            final_unrealized_pnl_inr=m.final_unrealized_pnl_inr,
+            final_wealth_inr=self.final_wealth_inr,
+            initial_capital=init_cap,
+            max_drawdown=self.max_drawdown,
+            drawdown_series=m.drawdown_series,
+            risk_violations_count=self.risk_violations,
+            rejected_orders_count=m.rejected_orders_count,
+            total_trades=self.total_trades,
+            winning_trades=m.winning_trades,
+            losing_trades=m.losing_trades,
+            win_rate=self.win_rate,
+            avg_winning_trade_inr=m.avg_winning_trade_inr,
+            avg_losing_trade_inr=m.avg_losing_trade_inr,
+            profit_factor=m.profit_factor,
+            total_turnover=self.total_turnover,
+            total_friction_cost=self.total_friction_cost,
+            total_fees_inr=self.total_fees_inr,
+            partial_exits_count=self.partial_exit_count,
+            avg_holding_duration_bars=m.avg_holding_duration_bars,
+            avg_cash_utilization=m.avg_cash_utilization,
+            avg_exposure=m.avg_exposure,
+            max_margin_usage_inr=m.max_margin_usage_inr,
+            long_trades_count=m.long_trades_count,
+            short_trades_count=m.short_trades_count,
+            long_realized_pnl_inr=m.long_realized_pnl_inr,
+            short_realized_pnl_inr=m.short_realized_pnl_inr,
+            long_win_rate=m.long_win_rate,
+            short_win_rate=m.short_win_rate,
+            benchmark_return=self.benchmark_buy_and_hold_return,
+            excess_return_over_benchmark=m.excess_return_over_benchmark,
+        )
+
 
 class ChronologicalReplayEngine:
     """Strict point-in-time chronological simulation engine."""
