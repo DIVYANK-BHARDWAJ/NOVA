@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from execution.adapter import ExecutionAdapter
-from execution.accounting import AccountLedger
+from execution.accounting import AccountLedger, PositionLedgerEntry
 from execution.client import TradingApiClient, TradingApiError
 from execution.config import ExecutionConfig
 from execution.models import (
@@ -130,7 +130,7 @@ class TestEndToEndPipelineIntegration(unittest.TestCase):
         self.mock_client.submit_order.assert_called()
 
         # Check that ledger recorded the fill
-        self.assertEqual(self.ledger.get_position("INFY"), 270)
+        self.assertEqual(self.ledger.get_position("INFY"), 142)
         self.assertLess(self.ledger.cash, 1_000_000.0)
 
     def test_risk_gate_drawdown_circuit_breaker_vetoes_order(self) -> None:
@@ -322,6 +322,118 @@ class TestEndToEndPipelineIntegration(unittest.TestCase):
         self.assertIsNotNone(res_buy)
         self.assertEqual(res_buy.status, OrderStatus.FILLED)
         self.mock_client.submit_order.assert_called_once()
+
+    def test_execute_trade_decision_order_type_none_and_hold_abstentions(self) -> None:
+        """Verify HOLD and OrderType.NONE trade decisions never submit orders."""
+        now = datetime.now(timezone.utc)
+        # OrderType.NONE with BUY action
+        none_order_dec = TradeDecision(
+            decision_id="dec_none_order",
+            decision_timestamp=now,
+            instrument_id="INFY",
+            selected_action=ActionType.BUY,
+            target_quantity_or_exposure=0.15,
+            order_type=OrderType.NONE,
+            selected_strategy="ensemble_test",
+            selection_or_rejection_reasons=("NO_ORDER_WANTED",),
+            configuration_version="1.0.0",
+        )
+        res = self.adapter.execute_trade_decision(
+            decision=none_order_dec,
+            current_price=1500.0,
+            current_portfolio_value=1_000_000.0,
+        )
+        self.assertIsNone(res)
+        self.mock_client.submit_order.assert_not_called()
+
+        # HOLD decision with existing position
+        hold_dec = TradeDecision(
+            decision_id="dec_hold",
+            decision_timestamp=now,
+            instrument_id="INFY",
+            selected_action=ActionType.HOLD,
+            target_quantity_or_exposure=0.15,
+            order_type=OrderType.NONE,
+            selected_strategy="ensemble_test",
+            selection_or_rejection_reasons=("MAINTAIN_POSITION",),
+            configuration_version="1.0.0",
+        )
+        res_hold = self.adapter.execute_trade_decision(
+            decision=hold_dec,
+            current_price=1500.0,
+            current_portfolio_value=1_000_000.0,
+            current_position_shares=100,
+        )
+        self.assertIsNone(res_hold)
+        self.mock_client.submit_order.assert_not_called()
+
+        # BUY decision where target shares are already held -> 0 shares -> returns None
+        buy_already_held = TradeDecision(
+            decision_id="dec_already_held",
+            decision_timestamp=now,
+            instrument_id="INFY",
+            selected_action=ActionType.BUY,
+            target_quantity_or_exposure=0.15,  # 100 shares
+            order_type=OrderType.MARKET,
+            selected_strategy="ensemble_test",
+            selection_or_rejection_reasons=("ALREADY_HELD",),
+            configuration_version="1.0.0",
+        )
+        res_already = self.adapter.execute_trade_decision(
+            decision=buy_already_held,
+            current_price=1500.0,
+            current_portfolio_value=1_000_000.0,
+            current_position_shares=100,  # Already holding 100 shares
+        )
+        self.assertIsNone(res_already)
+        self.mock_client.submit_order.assert_not_called()
+
+    def test_pipeline_bearish_signal_exits_long_position(self) -> None:
+        """Verify BEARISH signal exits long position and flat portfolio does not short."""
+        now = datetime.now(timezone.utc)
+        # Give ledger an existing position of 100 INFY shares
+        self.ledger.positions["INFY"] = PositionLedgerEntry(ticker="INFY", quantity=100, total_cost=150000.0)
+
+        # 1. Bearish signal with existing position -> triggers SELL (EXIT)
+        bearish_candidate = CandidateSignal(
+            strategy_id="test_strat",
+            strategy_version="1.0.0",
+            ticker="INFY",
+            direction=SignalDirection.BEARISH,
+            signal_score=-1.0,
+            score_semantics=ScoreSemantics.UNSPECIFIED,
+            evaluation_timestamp=now,
+        )
+        bar = MarketBar(
+            ticker="INFY",
+            source_timestamp=now,
+            open=1500.0,
+            high=1505.0,
+            low=1490.0,
+            close=1495.0,
+            volume=50000.0,
+            data_quality=DataQualityStatus.VALID,
+        )
+        self.mock_client.submit_order.return_value = {
+            "order_id": "ord_sell_123",
+            "ticker": "INFY",
+            "action": "SELL",
+            "quantity": 100,
+            "status": "FILLED",
+            "execution_price": 1495.0,
+            "charges": 20.0,
+        }
+
+        res_sell = self.pipeline.process_candidate_signal(bearish_candidate, bar)
+        self.assertIsNotNone(res_sell)
+        self.assertEqual(res_sell.status, OrderStatus.FILLED)
+        self.assertEqual(self.ledger.get_position("INFY"), 0)
+
+        # 2. Subsequent bearish signal while flat -> returns None (NO shorting)
+        self.mock_client.submit_order.reset_mock()
+        res_flat = self.pipeline.process_candidate_signal(bearish_candidate, bar)
+        self.assertIsNone(res_flat)
+        self.mock_client.submit_order.assert_not_called()
 
 
 if __name__ == "__main__":

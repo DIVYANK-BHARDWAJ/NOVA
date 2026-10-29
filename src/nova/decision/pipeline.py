@@ -97,6 +97,19 @@ class IntegratedTradingPipeline:
             logger.debug("[PIPELINE:SELL_FLAT] Sell signal for %s, but position is 0. Abstaining.", bar.ticker)
             return None
 
+        # For BUY, if current position is already at or above target exposure or max limit, HOLD
+        if proposed_action == ActionType.BUY and current_pos_shares > 0:
+            current_pos_val = current_pos_shares * bar.close
+            current_exposure = current_pos_val / max(portfolio_val, 1e-6)
+            if current_exposure >= self.default_target_exposure or current_exposure >= self.risk_gate.config.max_position_exposure:
+                logger.debug(
+                    "[PIPELINE:HOLD] Position for %s already meets target exposure (%.2f >= %.2f). Holding.",
+                    bar.ticker,
+                    current_exposure,
+                    self.default_target_exposure,
+                )
+                return None
+
         # 3. Authoritative Risk Gate Evaluation (Person 3 Domain)
         eval_as_of = as_of_time
         if eval_as_of is None:
@@ -116,7 +129,7 @@ class IntegratedTradingPipeline:
             current_portfolio_value=portfolio_val,
         )
 
-        if not risk_result.is_approved:
+        if not risk_result.is_approved or risk_result.authorized_action in (ActionType.NO_TRADE, ActionType.HOLD):
             self.orders_vetoed += 1
             logger.warning(
                 "[PIPELINE:RISK_VETO] Signal for %s %s VETOED by Risk Gate: %s",
@@ -128,10 +141,11 @@ class IntegratedTradingPipeline:
 
         self.orders_authorized += 1
 
-        # 4. Sizing Calculation
+        # 4. Sizing Calculation (Target Exposure to Incremental Shares)
         if proposed_action == ActionType.BUY:
             notional = risk_result.authorized_exposure * portfolio_val
-            quantity = int(notional / max(bar.close, 1e-4))
+            target_shares = int(notional / max(bar.close, 1e-4))
+            quantity = max(0, target_shares - current_pos_shares)
         else:
             quantity = current_pos_shares
 

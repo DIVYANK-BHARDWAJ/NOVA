@@ -660,6 +660,16 @@ class ExecutionAdapter:
             )
             return None
 
+        # Verify order_type is not NONE
+        order_type_val = getattr(getattr(decision, "order_type", None), "value", str(getattr(decision, "order_type", ""))).upper()
+        if order_type_val in ("NONE", ""):
+            logger.debug(
+                "[EXECUTION:ORDER_TYPE_NONE] TradeDecision %s for %s has order_type NONE; no order submitted.",
+                getattr(decision, "decision_id", "unknown"),
+                getattr(decision, "instrument_id", "unknown"),
+            )
+            return None
+
         # Map TradeDecision ActionType to OrderAction
         if action_val == "BUY":
             order_action = OrderAction.BUY
@@ -676,7 +686,13 @@ class ExecutionAdapter:
         elif target <= 1.0:
             # Exposure fraction (e.g. 0.20 of portfolio)
             notional = target * max(current_portfolio_value, 0.0)
-            quantity = int(notional / max(current_price, 1e-4))
+            target_shares = int(notional / max(current_price, 1e-4))
+            if action_val == "BUY":
+                quantity = max(0, target_shares - current_position_shares)
+            elif action_val == "REDUCE":
+                quantity = max(0, current_position_shares - target_shares)
+            else:
+                quantity = target_shares
         else:
             quantity = int(target)
 
