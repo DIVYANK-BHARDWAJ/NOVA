@@ -120,28 +120,31 @@ class LifecycleMonitor:
             return False
 
     def start(self) -> None:
-        """Start background monitoring thread."""
-        if self._running:
-            return
-        self._running = True
-        self._thread = threading.Thread(
-            target=self._monitor_loop,
-            name="LifecycleMonitor",
-            daemon=True,
-        )
-        self._thread.start()
-        logger.info(
-            "LifecycleMonitor started (polling interval: %.1fs).",
-            self.poll_interval_seconds,
-        )
+        """Start background monitoring thread. Idempotent and thread-safe."""
+        with self._lock:
+            if self._running or (self._thread is not None and self._thread.is_alive()):
+                logger.warning("[LIFECYCLE:MONITOR] LifecycleMonitor already running; ignoring duplicate start()")
+                return
+            self._running = True
+            self._thread = threading.Thread(
+                target=self._monitor_loop,
+                name="LifecycleMonitor",
+                daemon=True,
+            )
+            self._thread.start()
+            logger.info(
+                "[LIFECYCLE:START] LifecycleMonitor started (polling interval: %.1fs).",
+                self.poll_interval_seconds,
+            )
 
     def stop(self, timeout: float = 2.0) -> None:
         """Stop background monitoring thread."""
-        self._running = False
+        with self._lock:
+            self._running = False
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         logger.info(
-            "LifecycleMonitor stopped. Metrics: polls=%d transitions=%d errors=%d",
+            "[LIFECYCLE:STOP] LifecycleMonitor stopped. Metrics: polls=%d transitions=%d errors=%d",
             self.poll_count,
             self.stage_transitions_count,
             self.error_count,
@@ -162,11 +165,11 @@ class LifecycleMonitor:
         except TradingApiError as exc:
             self.error_count += 1
             self.last_error = str(exc)
-            logger.warning("[LIFECYCLE] Failed to query /api/v1/stage: %s", exc)
+            logger.warning("[LIFECYCLE:ERROR] Failed to query /api/v1/stage: %s", exc)
         except Exception as exc:
             self.error_count += 1
             self.last_error = str(exc)
-            logger.error("[LIFECYCLE] Unexpected error querying stage: %s", exc)
+            logger.error("[LIFECYCLE:ERROR] Unexpected error querying stage: %s", exc)
 
         # 2. Query Clock
         try:
@@ -174,14 +177,16 @@ class LifecycleMonitor:
         except TradingApiError as exc:
             self.error_count += 1
             self.last_error = str(exc)
-            logger.warning("[LIFECYCLE] Failed to query /api/v1/simulation/clock: %s", exc)
+            logger.warning("[LIFECYCLE:ERROR] Failed to query /api/v1/simulation/clock: %s", exc)
         except Exception as exc:
             self.error_count += 1
             self.last_error = str(exc)
-            logger.error("[LIFECYCLE] Unexpected error querying clock: %s", exc)
+            logger.error("[LIFECYCLE:ERROR] Unexpected error querying clock: %s", exc)
 
         self.poll_count += 1
         self.last_poll_timestamp = time.time()
+        if stage is not None and clock is not None:
+            self.last_error = None
 
         # 3. Detect Stage Transition
         if stage is not None:
@@ -201,7 +206,7 @@ class LifecycleMonitor:
                 prev_str = f"'{prev_stage.stage}' ({prev_stage.status})" if prev_stage else "None"
                 curr_str = f"'{stage.stage}' ({stage.status})"
                 logger.info(
-                    "[LIFECYCLE] Stage transition detected: %s -> %s | Days: %d/%d (Date: %s)",
+                    "[LIFECYCLE:STAGE] Stage transition detected: %s -> %s | Days: %d/%d (Date: %s)",
                     prev_str,
                     curr_str,
                     stage.days_completed,
@@ -212,7 +217,7 @@ class LifecycleMonitor:
                     try:
                         self.on_stage_change(stage, prev_stage)
                     except Exception as exc:
-                        logger.error("[LIFECYCLE] Error in on_stage_change callback: %s", exc, exc_info=True)
+                        logger.error("[LIFECYCLE:ERROR] Error in on_stage_change callback: %s", exc, exc_info=True)
 
         # 4. Detect Clock Progression
         if clock is not None:
@@ -223,7 +228,7 @@ class LifecycleMonitor:
                 try:
                     self.on_clock_tick(clock)
                 except Exception as exc:
-                    logger.error("[LIFECYCLE] Error in on_clock_tick callback: %s", exc, exc_info=True)
+                    logger.error("[LIFECYCLE:ERROR] Error in on_clock_tick callback: %s", exc, exc_info=True)
 
         return stage, clock
 
@@ -235,6 +240,10 @@ class LifecycleMonitor:
             curr_day = self._current_clock.current_day if self._current_clock else None
             total_days = self._current_clock.total_days if self._current_clock else None
             sim_date = self._current_clock.simulated_date if self._current_clock else None
+            last_err = self.last_error
+            polls = self.poll_count
+            transitions = self.stage_transitions_count
+            errors = self.error_count
 
         hb_active = bool(self.heartbeat_worker and getattr(self.heartbeat_worker, "is_running", False))
         hb_acks = getattr(self.heartbeat_worker, "acknowledged_count", 0) if self.heartbeat_worker else 0
@@ -245,7 +254,44 @@ class LifecycleMonitor:
         assigned = getattr(self.consumer, "assigned_partitions", []) if self.consumer else []
         kafka_partitions = len(assigned)
 
-        bot_ready = kafka_running and hb_active
+        readiness_blockers: list[str] = []
+
+        # 1. API reachability & Stage availability
+        api_reachable = (self.last_poll_timestamp is not None) and (last_err is None)
+        if last_err is not None:
+            api_reachable = False
+            readiness_blockers.append(f"Trading API query failed: {last_err}")
+        elif polls == 0:
+            readiness_blockers.append("Trading API not yet polled (initial poll pending)")
+
+        if stage_val is None:
+            readiness_blockers.append("Simulation stage unknown (awaiting initial stage response)")
+
+        # 2. Kafka connectivity
+        if not kafka_running:
+            readiness_blockers.append("Kafka consumer is not running")
+        elif kafka_partitions == 0:
+            readiness_blockers.append("Kafka consumer has 0 assigned partitions")
+
+        # 3. Heartbeat worker status and acknowledgements
+        if not hb_active:
+            readiness_blockers.append("HeartbeatWorker is not active")
+
+        # Crucial invariant: In preflight stage, heartbeat acknowledgements are MANDATORY
+        if self.is_preflight and hb_acks == 0:
+            readiness_blockers.append(
+                f"Heartbeat acknowledgements missing in preflight stage (0 acknowledged)"
+            )
+        elif hb_enqueued > 0 and hb_acks == 0:
+            readiness_blockers.append(
+                f"Heartbeats enqueued ({hb_enqueued}) but none acknowledged yet"
+            )
+        elif hb_failures > 0 and hb_acks == 0:
+            readiness_blockers.append(
+                f"Heartbeat acknowledgements failing ({hb_failures} failures, 0 acknowledged)"
+            )
+
+        bot_ready = len(readiness_blockers) == 0
 
         return {
             "stage": stage_val,
@@ -256,10 +302,11 @@ class LifecycleMonitor:
             "current_day": curr_day,
             "total_days": total_days,
             "simulated_date": sim_date,
-            "polls_completed": self.poll_count,
-            "transitions_detected": self.stage_transitions_count,
-            "poll_errors": self.error_count,
-            "last_error": self.last_error,
+            "polls_completed": polls,
+            "transitions_detected": transitions,
+            "poll_errors": errors,
+            "last_error": last_err,
+            "api_reachable": api_reachable,
             # Component readiness
             "kafka_connected": kafka_running,
             "kafka_partitions_assigned": kafka_partitions,
@@ -268,6 +315,45 @@ class LifecycleMonitor:
             "heartbeats_enqueued": hb_enqueued,
             "heartbeats_failed": hb_failures,
             "bot_ready": bot_ready,
+            "readiness_blockers": readiness_blockers,
+            "diagnostics": {
+                "api": {
+                    "reachable": api_reachable,
+                    "last_error": last_err,
+                    "polls": polls,
+                    "poll_errors": errors,
+                },
+                "kafka": {
+                    "connected": kafka_running,
+                    "partitions": kafka_partitions,
+                },
+                "heartbeat": {
+                    "active": hb_active,
+                    "enqueued": hb_enqueued,
+                    "acknowledged": hb_acks,
+                    "failed": hb_failures,
+                },
+                "lifecycle": {
+                    "stage": stage_val,
+                    "status": status_val,
+                    "current_day": curr_day,
+                    "total_days": total_days,
+                },
+            },
+        }
+
+    def get_health_status(self) -> dict[str, Any]:
+        """Return component health diagnostics for lifecycle monitoring."""
+        summary = self.get_readiness_summary()
+        return {
+            "is_running": self._running,
+            "stage": summary["stage"],
+            "status": summary["status"],
+            "api_reachable": summary["api_reachable"],
+            "polls_completed": summary["polls_completed"],
+            "poll_errors": summary["poll_errors"],
+            "bot_ready": summary["bot_ready"],
+            "readiness_blockers": summary["readiness_blockers"],
         }
 
     def _monitor_loop(self) -> None:
@@ -278,8 +364,9 @@ class LifecycleMonitor:
 
             if self.poll_count % 10 == 0:
                 summary = self.get_readiness_summary()
+                blockers_str = f" | Blockers: {summary['readiness_blockers']}" if summary['readiness_blockers'] else ""
                 logger.info(
-                    "[LIFECYCLE STATUS] Stage: '%s' (%s) | Day: %s/%s | Kafka: %s (%d parts) | Heartbeats Acked: %d | Bot Ready: %s",
+                    "[LIFECYCLE:STATUS] Stage: '%s' (%s) | Day: %s/%s | Kafka: %s (%d parts) | Heartbeats Acked: %d | Bot Ready: %s%s",
                     summary["stage"],
                     summary["status"],
                     summary["current_day"],
@@ -288,6 +375,7 @@ class LifecycleMonitor:
                     summary["kafka_partitions_assigned"],
                     summary["heartbeats_acknowledged"],
                     summary["bot_ready"],
+                    blockers_str,
                 )
 
             elapsed = time.time() - t0

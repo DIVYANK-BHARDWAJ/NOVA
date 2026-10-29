@@ -185,8 +185,9 @@ def main() -> int:
         on_stage_change=_on_stage_transition,
         heartbeat_worker=heartbeat_worker,
     )
+    lifecycle_monitor.poll_once()
     lifecycle_monitor.start()
-    logger.info("[LIFECYCLE] LifecycleMonitor active (polling every 3.0s).")
+    logger.info("[LIFECYCLE:INIT] LifecycleMonitor active (polling every 3.0s).")
 
     # 7. Connect Person 2 Strategy Connector (if available)
     try:
@@ -197,9 +198,9 @@ def main() -> int:
         strategy = EMACrossoverStrategy(config=strat_cfg)
         connector = KafkaStrategyConnector(strategy=strategy)
         dispatcher.subscribe_tick(connector.handle_market_tick)
-        logger.info("[STRATEGY] Person 2 EMACrossoverStrategy registered to EventDispatcher.")
+        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy registered to EventDispatcher.")
     except Exception as exc:
-        logger.info("[STRATEGY] Strategy module not loaded: %s", exc)
+        logger.info("[STRATEGY:INIT] Strategy module not loaded: %s", exc)
 
     # 8. Start Kafka Consumer Loop
     consumer = MarketDataConsumer(config=k_config, dispatcher=dispatcher)
@@ -208,27 +209,36 @@ def main() -> int:
     # Register clean signal handlers
     def _shutdown_handler(signum, frame):
         sig_name = signal.Signals(signum).name
-        logger.info("Received signal %s. Shutting down NOVA gracefully...", sig_name)
+        logger.info("[SHUTDOWN] Received signal %s. Shutting down NOVA gracefully...", sig_name)
         consumer.stop()
 
     signal.signal(signal.SIGINT, _shutdown_handler)
     signal.signal(signal.SIGTERM, _shutdown_handler)
 
-    logger.info("[KAFKA] Starting MarketDataConsumer on %s...", k_config.bootstrap_servers)
+    logger.info("[KAFKA:INIT] Starting MarketDataConsumer on %s...", k_config.bootstrap_servers)
     try:
         consumer.run(max_messages=args.max_messages)
     except PlaceholderBrokerError as exc:
-        logger.error("Placeholder broker error: %s", exc)
+        logger.error("[KAFKA:ERROR] Placeholder broker error: %s", exc)
         return 1
     except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt received. Exiting.")
+        logger.info("[SHUTDOWN] KeyboardInterrupt received. Exiting.")
     except Exception as exc:
-        logger.critical("Fatal error in consumer: %s", exc, exc_info=True)
+        logger.critical("[KAFKA:FATAL] Fatal error in consumer: %s", exc, exc_info=True)
         return 2
     finally:
         logger.info("[SHUTDOWN] Stopping background services...")
         lifecycle_monitor.stop()
         heartbeat_worker.stop()
+        summary = lifecycle_monitor.get_readiness_summary()
+        logger.info(
+            "[SHUTDOWN] Final Readiness State: bot_ready=%s, heartbeats_acked=%d, polls=%d, kafka_errors=%d, blockers=%s",
+            summary.get("bot_ready"),
+            summary.get("heartbeats_acknowledged"),
+            summary.get("polls_completed"),
+            consumer.kafka_errors,
+            summary.get("readiness_blockers"),
+        )
         logger.info("[SHUTDOWN] All services stopped. NOVA process completed.")
 
     return 0

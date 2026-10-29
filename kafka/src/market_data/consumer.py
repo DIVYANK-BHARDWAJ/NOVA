@@ -10,6 +10,7 @@ from __future__ import annotations
 import collections
 import logging
 import signal
+import time
 from typing import Any, Callable, Optional
 
 from market_data.config import KafkaConfig
@@ -39,6 +40,7 @@ class MarketDataConsumer:
         config: KafkaConfig,
         dispatcher: Optional[EventDispatcher] = None,
         consumer_factory: Optional[Callable[[dict[str, Any]], Any]] = None,
+        disconnect_backoff_seconds: float = 0.1,
     ) -> None:
         """Initialize consumer with configuration and optional dispatcher/factory.
 
@@ -46,10 +48,12 @@ class MarketDataConsumer:
             config: KafkaConfig instance.
             dispatcher: EventDispatcher instance. Defaults to creating a new one.
             consumer_factory: Factory function returning a Kafka Consumer (used for testing/mocking).
+            disconnect_backoff_seconds: Delay on broker disconnect to avoid CPU spin loop.
         """
         self.config = config
         self.dispatcher = dispatcher or EventDispatcher()
         self._consumer_factory = consumer_factory
+        self.disconnect_backoff_seconds = float(disconnect_backoff_seconds)
         self._consumer: Any = None
         self._running = False
 
@@ -71,6 +75,24 @@ class MarketDataConsumer:
     def is_connected(self) -> bool:
         """Return True if consumer is active and assigned partitions."""
         return self._running and (len(self.assigned_partitions) > 0 or self._consumer is not None)
+
+    def get_health_status(self) -> dict[str, Any]:
+        """Return structured health and diagnostics for the Kafka consumer."""
+        assigned_count = len(self.assigned_partitions)
+        failed_count = len(self._failed_partitions)
+        return {
+            "is_running": self._running,
+            "bootstrap_servers": self.config.bootstrap_servers,
+            "group_id": self.config.group_id,
+            "assigned_partitions": assigned_count,
+            "failed_partitions": failed_count,
+            "messages_consumed": dict(self.messages_consumed),
+            "messages_dispatched": dict(self.messages_dispatched),
+            "decode_errors": dict(self.decode_errors),
+            "validation_errors": dict(self.validation_errors),
+            "kafka_errors": self.kafka_errors,
+            "is_healthy": self._running and (assigned_count > 0 or not self._consumer) and (failed_count == 0),
+        }
 
     def _create_kafka_consumer(self) -> Any:
         """Instantiate Kafka consumer client."""
@@ -127,11 +149,23 @@ class MarketDataConsumer:
             err_code = getattr(err, "code", lambda: None)()
             is_eof = getattr(err, "str", lambda: "")() == "_PARTITION_EOF" or str(err_code) == "-191"
             if is_eof:
-                logger.debug("Reached end of partition for %s [%s]", msg.topic(), msg.partition())
+                logger.debug("[KAFKA:EOF] Reached end of partition for %s [%s]", msg.topic(), msg.partition())
                 return False
 
             self.kafka_errors += 1
-            logger.warning("Kafka error received: %s (code=%s)", err, err_code)
+            err_msg = str(err)
+            is_disconnect = (
+                str(err_code) in ("-187", "-195", "-192")
+                or "broker" in err_msg.lower()
+                or "disconnect" in err_msg.lower()
+                or "transport" in err_msg.lower()
+            )
+            if is_disconnect:
+                logger.warning("[KAFKA:DISCONNECT] Broker disconnect or transport error: %s (code=%s)", err, err_code)
+                if self.disconnect_backoff_seconds > 0:
+                    time.sleep(self.disconnect_backoff_seconds)
+            else:
+                logger.warning("[KAFKA:ERROR] Kafka error received: %s (code=%s)", err, err_code)
             return False
 
         topic = msg.topic() or "unknown"
@@ -269,10 +303,10 @@ class MarketDataConsumer:
 
         def _on_partitions_assigned(c: Any, partitions: list[Any]) -> None:
             self.assigned_partitions = list(partitions)
-            logger.info("Partition rebalance: Assigned %d partition(s): %s", len(partitions), partitions)
+            logger.info("[KAFKA:REBALANCE] Partition rebalance: Assigned %d partition(s): %s", len(partitions), partitions)
 
         def _on_partitions_revoked(c: Any, partitions: list[Any]) -> None:
-            logger.info("Partition rebalance: Revoked %d partition(s): %s", len(partitions), partitions)
+            logger.info("[KAFKA:REBALANCE] Partition rebalance: Revoked %d partition(s): %s", len(partitions), partitions)
             for p in partitions:
                 t = getattr(p, "topic", "")
                 pid = getattr(p, "partition", -1)
@@ -302,7 +336,23 @@ class MarketDataConsumer:
                     logger.info("Reached max_messages limit (%d). Exiting loop.", max_messages)
                     break
 
-                msg = self._consumer.poll(timeout=poll_timeout_seconds)
+                try:
+                    msg = self._consumer.poll(timeout=poll_timeout_seconds)
+                except Exception as exc:
+                    self.kafka_errors += 1
+                    err_str = str(exc).lower()
+                    if "broker" in err_str or "disconnect" in err_str or "transport" in err_str or "timeout" in err_str:
+                        logger.warning(
+                            "[KAFKA:DISCONNECT] Transient Kafka poll error: %s. Backing off %.1fs...",
+                            exc,
+                            self.disconnect_backoff_seconds,
+                        )
+                        if self.disconnect_backoff_seconds > 0:
+                            time.sleep(self.disconnect_backoff_seconds)
+                        continue
+                    else:
+                        logger.error("[KAFKA:POLL_ERROR] Error in consumer poll: %s", exc)
+                        raise
                 if msg is None:
                     continue
 

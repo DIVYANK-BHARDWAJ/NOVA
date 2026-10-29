@@ -208,7 +208,7 @@ class ExecutionAdapter:
         with self._intent_lock:
             if intent.intent_id in self._active_intents:
                 logger.warning(
-                    "Concurrent duplicate order submission rejected for intent_id %s.", intent.intent_id
+                    "[EXECUTION:REJECT] Concurrent duplicate order submission rejected for intent_id %s.", intent.intent_id
                 )
                 result = OrderResult(
                     client_intent_id=intent.intent_id,
@@ -226,7 +226,7 @@ class ExecutionAdapter:
             if intent.intent_id in self._completed_intents:
                 prev_result = self._completed_intents[intent.intent_id]
                 logger.warning(
-                    "Duplicate order submission rejected for already-completed intent_id %s (status=%s).",
+                    "[EXECUTION:REJECT] Duplicate order submission rejected for already-completed intent_id %s (status=%s).",
                     intent.intent_id,
                     prev_result.status.value,
                 )
@@ -383,6 +383,13 @@ class ExecutionAdapter:
                 return result
 
             # 6. Order Submission to Official Platform REST API
+            logger.info(
+                "[EXECUTION:SUBMIT] Submitting order intent %s: %s %d %s",
+                intent.intent_id,
+                intent.action.value,
+                intent.quantity,
+                ticker_clean,
+            )
             try:
                 resp = self.client.submit_order(
                     ticker=ticker_clean,
@@ -396,7 +403,7 @@ class ExecutionAdapter:
             except RequestTimeoutError as exc:
                 # Timeout does not prove rejection! Mark UNKNOWN, do NOT blind retry.
                 logger.critical(
-                    "TIMEOUT during order submission for %s %d %s (Intent: %s). "
+                    "[EXECUTION:TIMEOUT] Request timeout during submission for %s %d %s (Intent: %s). "
                     "Order status is UNKNOWN. Withholding automatic retry to prevent duplicate execution.",
                     intent.action.value,
                     intent.quantity,
@@ -412,7 +419,7 @@ class ExecutionAdapter:
                 return result
 
             except (AuthenticationError, AuthorizationError, RateLimitError, TradingApiError) as exc:
-                logger.error("API error during order submission for %s: %s", ticker_clean, exc)
+                logger.error("[EXECUTION:API_ERROR] API error during order submission for %s: %s", ticker_clean, exc)
                 result = OrderResult(
                     client_intent_id=intent.intent_id,
                     ticker=ticker_clean,
@@ -426,7 +433,7 @@ class ExecutionAdapter:
                 return result
 
             except Exception as exc:
-                logger.error("Unexpected error submitting order for %s: %s", ticker_clean, exc, exc_info=True)
+                logger.error("[EXECUTION:ERROR] Unexpected error submitting order for %s: %s", ticker_clean, exc, exc_info=True)
                 result = OrderResult(
                     client_intent_id=intent.intent_id,
                     ticker=ticker_clean,
@@ -618,3 +625,20 @@ class ExecutionAdapter:
         )
         self._emit_event("ORDER_UNCERTAIN", result)
         return result
+
+    def get_health_status(self) -> dict[str, Any]:
+        """Return health diagnostics for ExecutionAdapter."""
+        with self._intent_lock:
+            active_count = len(self._active_intents)
+            completed_count = len(self._completed_intents)
+            known_orders_count = len(self._known_order_ids)
+
+        ledger_health = self.ledger.get_health_status() if self.ledger and hasattr(self.ledger, "get_health_status") else None
+
+        return {
+            "active_intents": active_count,
+            "completed_intents": completed_count,
+            "known_orders": known_orders_count,
+            "has_ledger": self.ledger is not None,
+            "ledger_diagnostics": ledger_health,
+        }

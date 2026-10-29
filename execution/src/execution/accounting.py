@@ -257,13 +257,13 @@ class AccountLedger:
         with self._lock:
             # 1. Idempotency check: Reject duplicate event IDs
             if event_key in self._processed_event_ids:
-                logger.info("AccountLedger: Skipping duplicate execution event '%s'", event_key)
+                logger.info("[ACCOUNTING:DUPLICATE] Skipping duplicate execution event '%s'", event_key)
                 return False
 
             # 2. Handle UNKNOWN outcomes: Hold in uncertain ledger without blind retries
             if result.status == OrderStatus.UNKNOWN or result.requires_reconciliation:
                 logger.warning(
-                    "AccountLedger: Order intent %s marked UNKNOWN. Retaining in uncertain ledger for reconciliation.",
+                    "[ACCOUNTING:UNKNOWN] Order intent %s marked UNKNOWN. Retaining in uncertain ledger for reconciliation.",
                     result.client_intent_id,
                 )
                 self._uncertain_orders[result.client_intent_id] = UncertainOrderRecord(
@@ -286,7 +286,7 @@ class AccountLedger:
                 # If no new shares filled, skip to prevent double-counting
                 if delta_qty <= 0:
                     logger.info(
-                        "AccountLedger: Intent %s fill quantity %d <= previously processed %d. Ignoring.",
+                        "[ACCOUNTING:FILL] Intent %s fill quantity %d <= previously processed %d. Ignoring.",
                         result.client_intent_id,
                         total_filled,
                         prev_filled,
@@ -482,6 +482,17 @@ class AccountLedger:
 
         is_sync = pos_report.is_synchronized and cash_report.is_synchronized and (pending_count == 0)
 
+        for d in discrepancies:
+            logger.warning("[ACCOUNTING:DISCREPANCY] %s", d)
+
+        logger.info(
+            "[ACCOUNTING:RECONCILE] Completed: synchronized=%s positions_sync=%s cash_sync=%s pending_uncertain=%d",
+            is_sync,
+            pos_report.is_synchronized,
+            cash_report.is_synchronized,
+            pending_count,
+        )
+
         return FullReconciliationReport(
             timestamp=now,
             positions=pos_report,
@@ -492,3 +503,18 @@ class AccountLedger:
             is_synchronized=is_sync,
             api_reachable=True,
         )
+
+    def get_health_status(self) -> dict[str, Any]:
+        """Return structured accounting health and position diagnostics."""
+        with self._lock:
+            active_positions = {k: v.quantity for k, v in self.positions.items() if v.quantity != 0}
+            pending_uncertain = len([u for u in self._uncertain_orders.values() if not u.is_resolved])
+            return {
+                "cash": self.cash,
+                "active_positions_count": len(active_positions),
+                "total_charges": self.total_charges,
+                "total_realized_pnl": self.total_realized_pnl,
+                "processed_events_count": len(self._processed_event_ids),
+                "uncertain_orders_pending": pending_uncertain,
+                "is_healthy": pending_uncertain == 0,
+            }

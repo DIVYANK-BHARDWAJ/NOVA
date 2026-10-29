@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-10-29T16:42:15.945663+00:00",
+  "timestamp_utc": "2026-10-29T17:07:47.729846+00:00",
   "verification_mode": "OFFLINE_DETERMINISTIC",
   "strategy": {
     "strategy_id": "ema_crossover",
@@ -34,8 +34,8 @@
     "evaluation_errors_count": 0
   },
   "performance": {
-    "avg_processing_latency_ms": 0.047,
-    "total_elapsed_ms": 1.63
+    "avg_processing_latency_ms": 0.05,
+    "total_elapsed_ms": 1.76
   },
   "warnings": [
     "Offline synthetic test fixtures used; real broker was not contacted."
