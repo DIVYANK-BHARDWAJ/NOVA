@@ -18,6 +18,7 @@ from nova.research.adapters import (
     load_market_bars_from_csv,
 )
 from run_research_strategy import main as cli_main
+from start_nova_bot import main as bot_main
 
 
 class TestEndToEndPipeline(unittest.TestCase):
@@ -126,6 +127,17 @@ class TestEndToEndPipeline(unittest.TestCase):
         )
         with self.assertRaises(NumericalValidationError):
             load_market_bars_from_csv(csv_file, ticker="TEST")
+
+
+    def test_start_nova_bot_simulation_runner(self) -> None:
+        """start_nova_bot simulation mode must execute cleanly and return 0."""
+        # Save stdout/argv, run bounded simulation
+        exit_code = bot_main([
+            "--simulated-feed",
+            "--max-ticks", "10",
+            "--tick-delay-seconds", "0.0",
+        ])
+        self.assertEqual(exit_code, 0)
 
 
 if __name__ == "__main__":

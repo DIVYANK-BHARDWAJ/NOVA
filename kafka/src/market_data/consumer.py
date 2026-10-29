@@ -230,13 +230,20 @@ class MarketDataConsumer:
             or (payload.get("data", {}) or {}).get("seq")
             or (payload.get("data", {}) or {}).get("sequence")
         )
-        logger.info("Preflight event received on %s [%s:%s]: seq=%s", topic, metadata.partition, metadata.offset, seq)
+        logger.info("[MARKET:PREFLIGHT] Preflight event received on %s [%s:%s]: seq=%s", topic, metadata.partition, metadata.offset, seq)
         self.dispatcher.dispatch_preflight(payload)
         self.messages_dispatched[topic] += 1
         return True
 
+    # Compatibility alias for main branch code calling _handle_preflight_tick
+    _handle_preflight_tick = _handle_preflight_record
+
     def _handle_tick_record(self, payload: dict[str, Any], metadata: KafkaMetadata, topic: str) -> bool:
         """Normalize, validate, and dispatch a market tick message."""
+        event_type = payload.get("event_type") or payload.get("event")
+        if event_type in ("preflight_tick", "heartbeat"):
+            return self._handle_preflight_record(payload, metadata, topic)
+
         try:
             event = normalize_market_tick(payload, metadata)
         except NormalizationError as exc:
