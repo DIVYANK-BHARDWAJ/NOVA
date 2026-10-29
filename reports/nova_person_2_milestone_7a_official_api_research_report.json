@@ -1,0 +1,460 @@
+{
+  "timestamp_utc": "2026-10-29T21:04:03.389294+00:00",
+  "milestone": "PERSON_2_MILESTONE_7A_OFFICIAL_API_DATA_RESEARCH",
+  "verdict": "PASS_RESEARCH_ACCEPTANCE",
+  "live_api_discovery": {
+    "gateway_url": "http://192.168.65.157:3002",
+    "simulation_stage": "development",
+    "active_dataset": "independent_test_2yr",
+    "tickers_discovered_count": 10,
+    "tickers_discovered": [
+      "AERX",
+      "BLUX",
+      "DSNY",
+      "HAVN",
+      "HMDP",
+      "MOTR",
+      "ORCX",
+      "PLNX",
+      "ROUT",
+      "SONA"
+    ],
+    "anti_lookahead_end_date": "2026-05-21"
+  },
+  "dataset_reconciliation": {
+    "archive_initial_snapshot": {
+      "path": "data/raw/manthan_history/",
+      "observation_count": 615,
+      "date_coverage": "2026-05 to 2026-08 (sparse slice)"
+    },
+    "archive_canonical_v1": {
+      "path": "data/replay/canonical_manthan_v1/",
+      "observation_count": 18494,
+      "date_coverage": "2016-10-24 to 2025-11-19"
+    },
+    "archive_canonical_v2": {
+      "path": "data/replay/canonical_manthan_v2/",
+      "observation_count": 21040,
+      "date_coverage": "2016-10-24 to 2026-05-21",
+      "sha256": "fb485fbf2a393c26730d8a6d6386e0a39df6206c84a4a241ab4c347bb166b738"
+    },
+    "reconciliation_verdict": "CONFIRMED_PERFECT_CONTINUITY"
+  },
+  "experiment_a_b_c_directional_classification": {
+    "test_sample_count": 4770,
+    "test_positive_samples": 2496,
+    "test_negative_samples": 2274,
+    "xgboost_binary_classifier": {
+      "split": "test_v2",
+      "sample_count": 4770,
+      "threshold": 0.5,
+      "accuracy_pct": 52.14,
+      "balanced_accuracy_pct": 50.06,
+      "roc_auc": 0.502127,
+      "brier_score": 0.249621,
+      "log_loss": 0.692389,
+      "confusion_matrix": {
+        "tn": 122,
+        "fp": 2152,
+        "fn": 131,
+        "tp": 2365
+      },
+      "precision": 0.523578,
+      "recall": 0.947516,
+      "f1_score": 0.674462
+    },
+    "xgboost_return_regressor": {
+      "accuracy_pct": 52.31,
+      "balanced_accuracy_pct": 49.98,
+      "mae": 0.016403,
+      "rmse": 0.024988
+    },
+    "positive_drift_baseline": {
+      "accuracy_pct": 52.33,
+      "balanced_accuracy_pct": 50.0
+    },
+    "zero_baseline": {
+      "accuracy_pct": 47.67
+    },
+    "mcnemar_classifier_vs_drift": {
+      "n_samples": 4770,
+      "both_correct": 2365,
+      "model_a_correct_model_b_wrong": 122,
+      "model_a_wrong_model_b_correct": 131,
+      "both_wrong": 2152,
+      "mcnemar_statistic": 0.253,
+      "p_value": 0.614995,
+      "is_statistically_significant_05": false
+    },
+    "mcnemar_classifier_vs_regressor": {
+      "n_samples": 4770,
+      "both_correct": 2362,
+      "model_a_correct_model_b_wrong": 125,
+      "model_a_wrong_model_b_correct": 133,
+      "both_wrong": 2150,
+      "mcnemar_statistic": 0.1899,
+      "p_value": 0.662981,
+      "is_statistically_significant_05": false
+    }
+  },
+  "experiment_d_feature_subsets": {
+    "subsets": {
+      "trend_momentum": {
+        "feature_count": 4,
+        "feature_names": [
+          "momentum",
+          "trend_slope",
+          "kaufman_efficiency_ratio",
+          "ema_normalized_spread"
+        ],
+        "metrics": {
+          "split": "test_trend_momentum",
+          "sample_count": 4770,
+          "threshold": 0.5,
+          "accuracy_pct": 51.99,
+          "balanced_accuracy_pct": 50.2,
+          "roc_auc": 0.500927,
+          "brier_score": 0.249548,
+          "log_loss": 0.692244,
+          "confusion_matrix": {
+            "tn": 266,
+            "fp": 2008,
+            "fn": 282,
+            "tp": 2214
+          },
+          "precision": 0.524396,
+          "recall": 0.887019,
+          "f1_score": 0.659125
+        }
+      },
+      "volatility": {
+        "feature_count": 4,
+        "feature_names": [
+          "normalized_atr",
+          "realized_volatility",
+          "parkinson_volatility",
+          "downside_deviation"
+        ],
+        "metrics": {
+          "split": "test_volatility",
+          "sample_count": 4770,
+          "threshold": 0.5,
+          "accuracy_pct": 52.43,
+          "balanced_accuracy_pct": 50.22,
+          "roc_auc": 0.500778,
+          "brier_score": 0.249612,
+          "log_loss": 0.69237,
+          "confusion_matrix": {
+            "tn": 63,
+            "fp": 2211,
+            "fn": 58,
+            "tp": 2438
+          },
+          "precision": 0.524414,
+          "recall": 0.976763,
+          "f1_score": 0.682435
+        }
+      },
+      "mean_reversion_volatility": {
+        "feature_count": 4,
+        "feature_names": [
+          "rolling_z_score",
+          "rsi",
+          "normalized_atr",
+          "realized_volatility"
+        ],
+        "metrics": {
+          "split": "test_mean_reversion_volatility",
+          "sample_count": 4770,
+          "threshold": 0.5,
+          "accuracy_pct": 52.14,
+          "balanced_accuracy_pct": 50.17,
+          "roc_auc": 0.500079,
+          "brier_score": 0.249657,
+          "log_loss": 0.692462,
+          "confusion_matrix": {
+            "tn": 180,
+            "fp": 2094,
+            "fn": 189,
+            "tp": 2307
+          },
+          "precision": 0.524199,
+          "recall": 0.924279,
+          "f1_score": 0.668987
+        }
+      },
+      "volume": {
+        "feature_count": 2,
+        "feature_names": [
+          "relative_volume",
+          "volume_z_score"
+        ],
+        "metrics": {
+          "split": "test_volume",
+          "sample_count": 4770,
+          "threshold": 0.5,
+          "accuracy_pct": 52.12,
+          "balanced_accuracy_pct": 49.83,
+          "roc_auc": 0.510835,
+          "brier_score": 0.249534,
+          "log_loss": 0.692215,
+          "confusion_matrix": {
+            "tn": 17,
+            "fp": 2257,
+            "fn": 27,
+            "tp": 2469
+          },
+          "precision": 0.522429,
+          "recall": 0.989183,
+          "f1_score": 0.683744
+        }
+      },
+      "full_12_features": {
+        "feature_count": 12,
+        "feature_names": [
+          "momentum",
+          "trend_slope",
+          "kaufman_efficiency_ratio",
+          "ema_normalized_spread",
+          "rolling_z_score",
+          "rsi",
+          "normalized_atr",
+          "realized_volatility",
+          "parkinson_volatility",
+          "downside_deviation",
+          "relative_volume",
+          "volume_z_score"
+        ],
+        "metrics": {
+          "split": "test_full_12_features",
+          "sample_count": 4770,
+          "threshold": 0.5,
+          "accuracy_pct": 52.14,
+          "balanced_accuracy_pct": 50.06,
+          "roc_auc": 0.502127,
+          "brier_score": 0.249621,
+          "log_loss": 0.692389,
+          "confusion_matrix": {
+            "tn": 122,
+            "fp": 2152,
+            "fn": 131,
+            "tp": 2365
+          },
+          "precision": 0.523578,
+          "recall": 0.947516,
+          "f1_score": 0.674462
+        }
+      }
+    },
+    "feature_importance_gain": {
+      "momentum": 14.2912,
+      "trend_slope": 6.4098,
+      "kaufman_efficiency_ratio": 9.535,
+      "ema_normalized_spread": 0.0,
+      "rolling_z_score": 6.3961,
+      "rsi": 9.8401,
+      "normalized_atr": 3.7468,
+      "realized_volatility": 7.4347,
+      "parkinson_volatility": 14.911,
+      "downside_deviation": 7.2475,
+      "relative_volume": 9.2713,
+      "volume_z_score": 9.4553
+    }
+  },
+  "experiment_e_forecast_horizons": {
+    "H_1": {
+      "horizon_bars": 1,
+      "train_samples": 11220,
+      "val_samples": 4740,
+      "test_samples": 4770,
+      "purged_embargo_samples": 20,
+      "classifier_metrics": {
+        "split": "test_v2_H1",
+        "sample_count": 4770,
+        "threshold": 0.5,
+        "accuracy_pct": 52.14,
+        "balanced_accuracy_pct": 50.06,
+        "roc_auc": 0.502127,
+        "brier_score": 0.249621,
+        "log_loss": 0.692389,
+        "confusion_matrix": {
+          "tn": 122,
+          "fp": 2152,
+          "fn": 131,
+          "tp": 2365
+        },
+        "precision": 0.523578,
+        "recall": 0.947516,
+        "f1_score": 0.674462
+      },
+      "drift_accuracy_pct": 52.33,
+      "mcnemar_vs_drift": {
+        "n_samples": 4770,
+        "both_correct": 2365,
+        "model_a_correct_model_b_wrong": 122,
+        "model_a_wrong_model_b_correct": 131,
+        "both_wrong": 2152,
+        "mcnemar_statistic": 0.253,
+        "p_value": 0.614995,
+        "is_statistically_significant_05": false
+      }
+    },
+    "H_3": {
+      "horizon_bars": 3,
+      "train_samples": 11190,
+      "val_samples": 4720,
+      "test_samples": 4760,
+      "purged_embargo_samples": 60,
+      "classifier_metrics": {
+        "split": "test_v2_H3",
+        "sample_count": 4760,
+        "threshold": 0.5,
+        "accuracy_pct": 52.98,
+        "balanced_accuracy_pct": 49.9,
+        "roc_auc": 0.483867,
+        "brier_score": 0.249354,
+        "log_loss": 0.691855,
+        "confusion_matrix": {
+          "tn": 0,
+          "fp": 2233,
+          "fn": 5,
+          "tp": 2522
+        },
+        "precision": 0.530389,
+        "recall": 0.998021,
+        "f1_score": 0.692667
+      },
+      "drift_accuracy_pct": 53.09,
+      "mcnemar_vs_drift": {
+        "n_samples": 4760,
+        "both_correct": 2522,
+        "model_a_correct_model_b_wrong": 0,
+        "model_a_wrong_model_b_correct": 5,
+        "both_wrong": 2233,
+        "mcnemar_statistic": 3.2,
+        "p_value": 0.073638,
+        "is_statistically_significant_05": false
+      }
+    },
+    "H_5": {
+      "horizon_bars": 5,
+      "train_samples": 11160,
+      "val_samples": 4690,
+      "test_samples": 4760,
+      "purged_embargo_samples": 100,
+      "classifier_metrics": {
+        "split": "test_v2_H5",
+        "sample_count": 4760,
+        "threshold": 0.5,
+        "accuracy_pct": 52.56,
+        "balanced_accuracy_pct": 50.0,
+        "roc_auc": 0.504307,
+        "brier_score": 0.249352,
+        "log_loss": 0.69185,
+        "confusion_matrix": {
+          "tn": 0,
+          "fp": 2258,
+          "fn": 0,
+          "tp": 2502
+        },
+        "precision": 0.52563,
+        "recall": 1.0,
+        "f1_score": 0.689066
+      },
+      "drift_accuracy_pct": 52.56,
+      "mcnemar_vs_drift": {
+        "n_samples": 4760,
+        "both_correct": 2502,
+        "model_a_correct_model_b_wrong": 0,
+        "model_a_wrong_model_b_correct": 0,
+        "both_wrong": 2258,
+        "mcnemar_statistic": 0.0,
+        "p_value": 1.0,
+        "is_statistically_significant_05": false
+      }
+    }
+  },
+  "diagnostics_regime": {
+    "HIGH_VOLATILITY": {
+      "sample_count": 1411,
+      "positive_class_ratio_pct": 52.94,
+      "directional_accuracy_pct": 52.3,
+      "balanced_accuracy_pct": 50.09,
+      "roc_auc": 0.5297
+    },
+    "RANGING": {
+      "sample_count": 2014,
+      "positive_class_ratio_pct": 51.79,
+      "directional_accuracy_pct": 51.44,
+      "balanced_accuracy_pct": 49.69,
+      "roc_auc": 0.4842
+    },
+    "TRENDING_BEARISH": {
+      "sample_count": 706,
+      "positive_class_ratio_pct": 52.27,
+      "directional_accuracy_pct": 53.12,
+      "balanced_accuracy_pct": 50.94,
+      "roc_auc": 0.4743
+    },
+    "TRENDING_BULLISH": {
+      "sample_count": 679,
+      "positive_class_ratio_pct": 51.99,
+      "directional_accuracy_pct": 52.43,
+      "balanced_accuracy_pct": 50.69,
+      "roc_auc": 0.5366
+    },
+    "UNKNOWN": {
+      "sample_count": 0,
+      "status": "NO_OBSERVATIONS"
+    }
+  },
+  "news_data_feasibility": {
+    "status": "BLOCKED_INSUFFICIENT_REAL_DATA",
+    "reason": "Official historical API only exposes OHLCV daily data. 0 corporate news records exist in genuine archives.",
+    "policy": "Strict no-synthetic-news policy maintained; anti-lookahead NewsSentimentInterface active."
+  },
+  "real_time_budget": {
+    "feature_pipeline_us": 1951.82,
+    "classifier_inference_us": 1405.88,
+    "end_to_end_predict_bar_us": 4967.01,
+    "universe_10_stocks_ms": 49.67,
+    "allowed_budget_ms": 3000.0,
+    "budget_utilization_pct": 1.66,
+    "status": "PASS_LINE_SPEED"
+  },
+  "classifier_artifact_v2": {
+    "model_id": "NOVA_XGBOOST_DIRECTIONAL_CLASSIFIER_V2",
+    "model_version": "2.0.0",
+    "model_type": "NATIVE_XGBOOST_DIRECTIONAL_CLASSIFIER_V2",
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "created_at_utc": "2026-10-29T21:04:03.387286+00:00",
+    "artifact_file": "model.json",
+    "artifact_sha256": "311652bf1a1fd002dc0a9a499061def419cd0e115531968e3368932505e50735",
+    "artifact_size_bytes": 9637,
+    "source_dataset": "data/replay/canonical_manthan_v2/",
+    "sample_counts": {
+      "total_raw": 21040,
+      "train": 11220,
+      "validation": 4740,
+      "test": 4770,
+      "purged_embargo": 20
+    },
+    "evaluation_metrics": {
+      "accuracy_pct": 52.14,
+      "balanced_accuracy_pct": 50.06,
+      "roc_auc": 0.502127,
+      "brier_score": 0.249621,
+      "log_loss": 0.692389,
+      "precision": 0.523578,
+      "recall": 0.947516,
+      "f1_score": 0.674462,
+      "mcnemar_vs_drift_p_value": 0.614995
+    },
+    "latency_profile_us": {
+      "feature_pipeline_us": 1951.82,
+      "model_inference_us": 1405.88,
+      "e2e_predict_bar_us": 4967.01
+    }
+  }
+}

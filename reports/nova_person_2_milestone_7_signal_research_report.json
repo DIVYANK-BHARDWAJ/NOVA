@@ -1,0 +1,434 @@
+{
+  "timestamp_utc": "2026-10-29T20:51:44.089364+00:00",
+  "milestone": "PERSON_2_MILESTONE_7_PREDICTIVE_SIGNAL_RESEARCH",
+  "framework_status": "PASS_RESEARCH_FRAMEWORK",
+  "dataset_provenance": {
+    "source_dir": "data/replay/canonical_manthan_v1/",
+    "tickers_count": 10,
+    "tickers": [
+      "AERX",
+      "BLUX",
+      "DSNY",
+      "HAVN",
+      "HMDP",
+      "MOTR",
+      "ORCX",
+      "PLNX",
+      "ROUT",
+      "SONA"
+    ],
+    "total_bars": 18494
+  },
+  "experiment_a_directional_classification": {
+    "test_sample_count": 4493,
+    "test_positive_samples": 2355,
+    "test_negative_samples": 2138,
+    "xgboost_binary_classifier": {
+      "split": "test",
+      "sample_count": 4493,
+      "threshold": 0.5,
+      "accuracy_pct": 52.48,
+      "balanced_accuracy_pct": 50.35,
+      "roc_auc": 0.499707,
+      "brier_score": 0.249604,
+      "log_loss": 0.692355,
+      "confusion_matrix": {
+        "tn": 131,
+        "fp": 2007,
+        "fn": 128,
+        "tp": 2227
+      },
+      "precision": 0.52598,
+      "recall": 0.945648,
+      "f1_score": 0.675975
+    },
+    "xgboost_return_regressor": {
+      "accuracy_pct": 52.19,
+      "balanced_accuracy_pct": 50.62
+    },
+    "pure_python_gbdt_regressor": {
+      "accuracy_pct": 51.84,
+      "balanced_accuracy_pct": 50.84
+    },
+    "positive_drift_baseline": {
+      "accuracy_pct": 52.41,
+      "balanced_accuracy_pct": 50.0
+    },
+    "mcnemar_classifier_vs_drift": {
+      "n_samples": 4493,
+      "both_correct": 2227,
+      "model_a_correct_model_b_wrong": 131,
+      "model_a_wrong_model_b_correct": 128,
+      "both_wrong": 2007,
+      "mcnemar_statistic": 0.0154,
+      "p_value": 0.901098,
+      "is_statistically_significant_05": false
+    },
+    "mcnemar_classifier_vs_regressor": {
+      "n_samples": 4493,
+      "both_correct": 1973,
+      "model_a_correct_model_b_wrong": 385,
+      "model_a_wrong_model_b_correct": 372,
+      "both_wrong": 1763,
+      "mcnemar_statistic": 0.1902,
+      "p_value": 0.66273,
+      "is_statistically_significant_05": false
+    }
+  },
+  "experiment_b_forecast_horizons": {
+    "H_1": {
+      "horizon_bars": 1,
+      "train_samples": 9201,
+      "val_samples": 4490,
+      "test_samples": 4493,
+      "purged_embargo_samples": 20,
+      "classifier_metrics": {
+        "split": "test_H1",
+        "sample_count": 4493,
+        "threshold": 0.5,
+        "accuracy_pct": 52.48,
+        "balanced_accuracy_pct": 50.35,
+        "roc_auc": 0.499707,
+        "brier_score": 0.249604,
+        "log_loss": 0.692355,
+        "confusion_matrix": {
+          "tn": 131,
+          "fp": 2007,
+          "fn": 128,
+          "tp": 2227
+        },
+        "precision": 0.52598,
+        "recall": 0.945648,
+        "f1_score": 0.675975
+      },
+      "drift_accuracy_pct": 52.41,
+      "mcnemar_vs_drift": {
+        "n_samples": 4493,
+        "both_correct": 2227,
+        "model_a_correct_model_b_wrong": 131,
+        "model_a_wrong_model_b_correct": 128,
+        "both_wrong": 2007,
+        "mcnemar_statistic": 0.0154,
+        "p_value": 0.901098,
+        "is_statistically_significant_05": false
+      }
+    },
+    "H_3": {
+      "horizon_bars": 3,
+      "train_samples": 9171,
+      "val_samples": 4470,
+      "test_samples": 4483,
+      "purged_embargo_samples": 60,
+      "classifier_metrics": {
+        "split": "test_H3",
+        "sample_count": 4483,
+        "threshold": 0.5,
+        "accuracy_pct": 52.6,
+        "balanced_accuracy_pct": 48.99,
+        "roc_auc": 0.504961,
+        "brier_score": 0.248943,
+        "log_loss": 0.69103,
+        "confusion_matrix": {
+          "tn": 196,
+          "fp": 1840,
+          "fn": 285,
+          "tp": 2162
+        },
+        "precision": 0.54023,
+        "recall": 0.883531,
+        "f1_score": 0.670492
+      },
+      "drift_accuracy_pct": 54.58,
+      "mcnemar_vs_drift": {
+        "n_samples": 4483,
+        "both_correct": 2162,
+        "model_a_correct_model_b_wrong": 196,
+        "model_a_wrong_model_b_correct": 285,
+        "both_wrong": 1840,
+        "mcnemar_statistic": 16.0998,
+        "p_value": 6e-05,
+        "is_statistically_significant_05": true
+      }
+    },
+    "H_5": {
+      "horizon_bars": 5,
+      "train_samples": 9141,
+      "val_samples": 4450,
+      "test_samples": 4473,
+      "purged_embargo_samples": 100,
+      "classifier_metrics": {
+        "split": "test_H5",
+        "sample_count": 4473,
+        "threshold": 0.5,
+        "accuracy_pct": 53.9,
+        "balanced_accuracy_pct": 49.53,
+        "roc_auc": 0.502951,
+        "brier_score": 0.248695,
+        "log_loss": 0.690536,
+        "confusion_matrix": {
+          "tn": 68,
+          "fp": 1957,
+          "fn": 105,
+          "tp": 2343
+        },
+        "precision": 0.544884,
+        "recall": 0.957108,
+        "f1_score": 0.694428
+      },
+      "drift_accuracy_pct": 54.73,
+      "mcnemar_vs_drift": {
+        "n_samples": 4473,
+        "both_correct": 2343,
+        "model_a_correct_model_b_wrong": 68,
+        "model_a_wrong_model_b_correct": 105,
+        "both_wrong": 1957,
+        "mcnemar_statistic": 7.4913,
+        "p_value": 0.0062,
+        "is_statistically_significant_05": true
+      }
+    }
+  },
+  "experiment_c_feature_subsets": {
+    "subsets": {
+      "trend_momentum": {
+        "feature_count": 4,
+        "feature_names": [
+          "momentum",
+          "trend_slope",
+          "kaufman_efficiency_ratio",
+          "ema_normalized_spread"
+        ],
+        "metrics": {
+          "split": "test_trend_momentum",
+          "sample_count": 4493,
+          "threshold": 0.5,
+          "accuracy_pct": 52.66,
+          "balanced_accuracy_pct": 50.54,
+          "roc_auc": 0.501549,
+          "brier_score": 0.249464,
+          "log_loss": 0.692075,
+          "confusion_matrix": {
+            "tn": 144,
+            "fp": 1994,
+            "fn": 133,
+            "tp": 2222
+          },
+          "precision": 0.52704,
+          "recall": 0.943524,
+          "f1_score": 0.676305
+        }
+      },
+      "volatility": {
+        "feature_count": 4,
+        "feature_names": [
+          "normalized_atr",
+          "realized_volatility",
+          "parkinson_volatility",
+          "downside_deviation"
+        ],
+        "metrics": {
+          "split": "test_volatility",
+          "sample_count": 4493,
+          "threshold": 0.5,
+          "accuracy_pct": 51.81,
+          "balanced_accuracy_pct": 49.59,
+          "roc_auc": 0.499416,
+          "brier_score": 0.249735,
+          "log_loss": 0.692618,
+          "confusion_matrix": {
+            "tn": 78,
+            "fp": 2060,
+            "fn": 105,
+            "tp": 2250
+          },
+          "precision": 0.522042,
+          "recall": 0.955414,
+          "f1_score": 0.675169
+        }
+      },
+      "mean_reversion_volatility": {
+        "feature_count": 4,
+        "feature_names": [
+          "rolling_z_score",
+          "rsi",
+          "normalized_atr",
+          "realized_volatility"
+        ],
+        "metrics": {
+          "split": "test_mean_reversion_volatility",
+          "sample_count": 4493,
+          "threshold": 0.5,
+          "accuracy_pct": 52.55,
+          "balanced_accuracy_pct": 50.75,
+          "roc_auc": 0.501113,
+          "brier_score": 0.249498,
+          "log_loss": 0.692143,
+          "confusion_matrix": {
+            "tn": 290,
+            "fp": 1848,
+            "fn": 284,
+            "tp": 2071
+          },
+          "precision": 0.528451,
+          "recall": 0.879406,
+          "f1_score": 0.660185
+        }
+      },
+      "volume": {
+        "feature_count": 2,
+        "feature_names": [
+          "relative_volume",
+          "volume_z_score"
+        ],
+        "metrics": {
+          "split": "test_volume",
+          "sample_count": 4493,
+          "threshold": 0.5,
+          "accuracy_pct": 52.19,
+          "balanced_accuracy_pct": 49.88,
+          "roc_auc": 0.52289,
+          "brier_score": 0.249267,
+          "log_loss": 0.69168,
+          "confusion_matrix": {
+            "tn": 42,
+            "fp": 2096,
+            "fn": 52,
+            "tp": 2303
+          },
+          "precision": 0.523528,
+          "recall": 0.977919,
+          "f1_score": 0.681966
+        }
+      },
+      "full_12_features": {
+        "feature_count": 12,
+        "feature_names": [
+          "momentum",
+          "trend_slope",
+          "kaufman_efficiency_ratio",
+          "ema_normalized_spread",
+          "rolling_z_score",
+          "rsi",
+          "normalized_atr",
+          "realized_volatility",
+          "parkinson_volatility",
+          "downside_deviation",
+          "relative_volume",
+          "volume_z_score"
+        ],
+        "metrics": {
+          "split": "test_full_12_features",
+          "sample_count": 4493,
+          "threshold": 0.5,
+          "accuracy_pct": 52.48,
+          "balanced_accuracy_pct": 50.35,
+          "roc_auc": 0.499707,
+          "brier_score": 0.249604,
+          "log_loss": 0.692355,
+          "confusion_matrix": {
+            "tn": 131,
+            "fp": 2007,
+            "fn": 128,
+            "tp": 2227
+          },
+          "precision": 0.52598,
+          "recall": 0.945648,
+          "f1_score": 0.675975
+        }
+      }
+    },
+    "feature_importance_gain": {
+      "momentum": 0.0,
+      "trend_slope": 8.9911,
+      "kaufman_efficiency_ratio": 3.386,
+      "ema_normalized_spread": 3.0988,
+      "rolling_z_score": 7.2331,
+      "rsi": 5.2674,
+      "normalized_atr": 5.9032,
+      "realized_volatility": 7.8077,
+      "parkinson_volatility": 13.7044,
+      "downside_deviation": 5.6427,
+      "relative_volume": 8.0245,
+      "volume_z_score": 8.6758
+    }
+  },
+  "experiment_d_regime_diagnostics": {
+    "HIGH_VOLATILITY": {
+      "sample_count": 1179,
+      "positive_class_ratio_pct": 52.93,
+      "directional_accuracy_pct": 53.27,
+      "balanced_accuracy_pct": 51.09,
+      "roc_auc": 0.5134
+    },
+    "RANGING": {
+      "sample_count": 1964,
+      "positive_class_ratio_pct": 52.34,
+      "directional_accuracy_pct": 51.93,
+      "balanced_accuracy_pct": 49.63,
+      "roc_auc": 0.4844
+    },
+    "TRENDING_BEARISH": {
+      "sample_count": 658,
+      "positive_class_ratio_pct": 54.71,
+      "directional_accuracy_pct": 54.26,
+      "balanced_accuracy_pct": 49.7,
+      "roc_auc": 0.4699
+    },
+    "TRENDING_BULLISH": {
+      "sample_count": 732,
+      "positive_class_ratio_pct": 50.0,
+      "directional_accuracy_pct": 51.37,
+      "balanced_accuracy_pct": 51.37,
+      "roc_auc": 0.5521
+    },
+    "UNKNOWN": {
+      "sample_count": 0,
+      "status": "NO_OBSERVATIONS"
+    }
+  },
+  "experiment_e_news_feasibility": {
+    "status": "BLOCKED_INSUFFICIENT_REAL_DATA",
+    "reason": "MANTHAN historical REST endpoint (/api/v1/stocks/history) provides OHLCV daily data only. Zero historical market.news records exist in canonical archives.",
+    "policy_adherence": "Strict no-synthetic-news policy maintained; zero synthetic headlines or simulated sentiment values generated for model training.",
+    "architectural_readiness": "NewsSentimentInterface implemented with anti-lookahead timestamp filtering for future live streaming integration."
+  },
+  "latency_profile_us": {
+    "feature_pipeline_us": 2006.68,
+    "model_inference_us": 1339.63,
+    "e2e_predict_bar_us": 4653.48
+  },
+  "classifier_artifact": {
+    "model_id": "NOVA_XGBOOST_DIRECTIONAL_CLASSIFIER_V1",
+    "model_version": "1.0.0",
+    "model_type": "NATIVE_XGBOOST_DIRECTIONAL_CLASSIFIER",
+    "objective": "binary:logistic",
+    "eval_metric": "logloss",
+    "created_at_utc": "2026-10-29T20:51:44.087532+00:00",
+    "artifact_file": "model.json",
+    "artifact_sha256": "1ef343ad65aa1fa4c2e29fa98b00762ad1ccef7bb0e46be33c7620ba2115f575",
+    "artifact_size_bytes": 9614,
+    "source_dataset": "data/replay/canonical_manthan_v1/",
+    "sample_counts": {
+      "train": 9201,
+      "validation": 4490,
+      "test": 4493,
+      "purged_embargo": 20
+    },
+    "evaluation_metrics": {
+      "accuracy_pct": 52.48,
+      "balanced_accuracy_pct": 50.35,
+      "roc_auc": 0.499707,
+      "brier_score": 0.249604,
+      "log_loss": 0.692355,
+      "precision": 0.52598,
+      "recall": 0.945648,
+      "f1_score": 0.675975,
+      "mcnemar_vs_drift_p_value": 0.901098
+    },
+    "latency_profile_us": {
+      "feature_pipeline_us": 2006.68,
+      "model_inference_us": 1339.63,
+      "e2e_predict_bar_us": 4653.48
+    }
+  }
+}

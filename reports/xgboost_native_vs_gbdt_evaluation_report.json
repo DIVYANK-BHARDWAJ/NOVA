@@ -1,0 +1,103 @@
+{
+  "timestamp_utc": "2026-10-29T20:09:48.561240+00:00",
+  "native_model": {
+    "model_id": "XGBOOST_NATIVE",
+    "model_version": "1.0.0",
+    "backend": "NATIVE_XGBOOST",
+    "artifact_path": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\artifacts\\models\\xgboost_native_v1\\model.json",
+    "artifact_checksum": "d930a05ffe39875f7e6c162406d95e403a62645a52937e0503dc109fc5d67d33",
+    "test_metrics": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015408,
+      "rmse": 0.024355,
+      "directional_accuracy_pct": 52.15,
+      "r2": -0.000624
+    },
+    "baseline_comparisons": {
+      "model": {
+        "split": "model",
+        "sample_count": 4493,
+        "mae": 0.015408,
+        "rmse": 0.024355,
+        "directional_accuracy_pct": 52.15,
+        "r2": -0.000624
+      },
+      "zero_baseline": {
+        "split": "zero_baseline",
+        "sample_count": 4493,
+        "mae": 0.015426,
+        "rmse": 0.024374,
+        "directional_accuracy_pct": 0.22,
+        "r2": -0.002169
+      },
+      "mean_baseline": {
+        "split": "mean_baseline",
+        "sample_count": 4493,
+        "mae": 0.015409,
+        "rmse": 0.024347,
+        "directional_accuracy_pct": 52.41,
+        "r2": 0.0
+      },
+      "rmse_improvement_vs_zero_pct": 0.08,
+      "rmse_improvement_vs_mean_pct": -0.03,
+      "directional_advantage_vs_random_pct": 2.15
+    },
+    "inference_smoke_test": {
+      "latency_ms": 4.074,
+      "sample_prediction": {
+        "model_id": "XGBOOST_NATIVE",
+        "model_version": "1.0.0",
+        "prediction_timestamp": "2025-11-11T00:00:00+00:00",
+        "input_cutoff_timestamp": "2025-11-11T00:00:00+00:00",
+        "instrument_id": "AERX",
+        "prediction_type": "EXPECTED_RETURN_DECIMAL",
+        "horizon_bars": 1,
+        "horizon_unit": "BARS",
+        "prediction_value": 0.000135,
+        "prediction_distribution": null,
+        "confidence_or_uncertainty": 0.1,
+        "availability_status": "READY",
+        "metadata": {
+          "backend": "NATIVE_XGBOOST",
+          "expected_bps": 1.3,
+          "feature_count": 12,
+          "is_bullish": true
+        },
+        "contract_version": "PROPOSED_V0"
+      }
+    }
+  },
+  "custom_gbdt_baseline": {
+    "artifact_path": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\artifacts\\models\\gbdt_ohlcv_baseline_v1\\model.json",
+    "test_metrics": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.024398,
+      "directional_accuracy_pct": 51.75,
+      "r2": -0.004203
+    }
+  },
+  "dataset_sample_counts": {
+    "total_raw": 18494,
+    "train_rows": 9201,
+    "val_rows": 4490,
+    "test_rows": 4493,
+    "purged_embargo": 20
+  },
+  "chronological_partitions": {
+    "train": [
+      "2016-12-02",
+      "2022-04-14"
+    ],
+    "val": [
+      "2022-04-19",
+      "2024-01-31"
+    ],
+    "test": [
+      "2024-02-02",
+      "2025-11-19"
+    ]
+  }
+}

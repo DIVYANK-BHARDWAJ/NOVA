@@ -1,0 +1,580 @@
+{
+  "timestamp_utc": "2026-10-29T19:29:39.194643+00:00",
+  "total_instruments": 10,
+  "total_historical_bars": 18494,
+  "dataset_source": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\data\\raw\\manthan_history_full",
+  "baseline_config": {
+    "ker_window": 10,
+    "ker_trend_threshold": 0.5,
+    "ker_ranging_threshold": 0.25,
+    "volatility_window": 20,
+    "high_volatility_threshold": 0.025,
+    "min_warmup_bars": 28,
+    "ewma_lambda": 0.94
+  },
+  "aggregate_counts": {
+    "TRENDING_BULLISH": 2935,
+    "TRENDING_BEARISH": 2694,
+    "RANGING": 8395,
+    "HIGH_VOLATILITY": 4200,
+    "UNKNOWN": 270
+  },
+  "aggregate_percentages": {
+    "TRENDING_BULLISH": 15.87,
+    "TRENDING_BEARISH": 14.57,
+    "RANGING": 45.39,
+    "HIGH_VOLATILITY": 22.71,
+    "UNKNOWN": 1.46
+  },
+  "per_instrument": {
+    "AERX": {
+      "total_bars": 2276,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2249,
+      "label_counts": {
+        "TRENDING_BULLISH": 432,
+        "TRENDING_BEARISH": 400,
+        "RANGING": 1312,
+        "HIGH_VOLATILITY": 105,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 18.98,
+        "RANGING": 57.64,
+        "HIGH_VOLATILITY": 4.61,
+        "TRENDING_BEARISH": 17.57
+      },
+      "max_streaks": {
+        "TRENDING_BULLISH": 21,
+        "RANGING": 44,
+        "HIGH_VOLATILITY": 33,
+        "TRENDING_BEARISH": 13
+      },
+      "total_transitions": 491,
+      "transitions_matrix": {
+        "TRENDING_BULLISH->RANGING": 94,
+        "RANGING->HIGH_VOLATILITY": 28,
+        "HIGH_VOLATILITY->RANGING": 25,
+        "RANGING->TRENDING_BEARISH": 108,
+        "TRENDING_BEARISH->RANGING": 100,
+        "RANGING->TRENDING_BULLISH": 83,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 15,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 14,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 6,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 11,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 7
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.005,
+        "sigma_max": 0.088271,
+        "sigma_valid_range": true
+      }
+    },
+    "BLUX": {
+      "total_bars": 2278,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2251,
+      "label_counts": {
+        "TRENDING_BULLISH": 468,
+        "TRENDING_BEARISH": 432,
+        "RANGING": 1207,
+        "HIGH_VOLATILITY": 144,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "RANGING": 52.99,
+        "TRENDING_BULLISH": 20.54,
+        "TRENDING_BEARISH": 18.96,
+        "HIGH_VOLATILITY": 6.32
+      },
+      "max_streaks": {
+        "RANGING": 50,
+        "TRENDING_BULLISH": 18,
+        "TRENDING_BEARISH": 28,
+        "HIGH_VOLATILITY": 41
+      },
+      "total_transitions": 493,
+      "transitions_matrix": {
+        "RANGING->TRENDING_BULLISH": 69,
+        "TRENDING_BULLISH->RANGING": 80,
+        "RANGING->TRENDING_BEARISH": 108,
+        "TRENDING_BEARISH->RANGING": 99,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 16,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 18,
+        "RANGING->HIGH_VOLATILITY": 38,
+        "HIGH_VOLATILITY->RANGING": 36,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 11,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 9,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 9
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0005,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.005,
+        "sigma_max": 0.087191,
+        "sigma_valid_range": true
+      }
+    },
+    "DSNY": {
+      "total_bars": 2279,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2252,
+      "label_counts": {
+        "TRENDING_BULLISH": 295,
+        "TRENDING_BEARISH": 439,
+        "RANGING": 1257,
+        "HIGH_VOLATILITY": 261,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.18,
+        "RANGING": 55.16,
+        "TRENDING_BULLISH": 12.94,
+        "TRENDING_BEARISH": 19.26,
+        "HIGH_VOLATILITY": 11.45
+      },
+      "max_streaks": {
+        "RANGING": 33,
+        "TRENDING_BULLISH": 16,
+        "TRENDING_BEARISH": 14,
+        "HIGH_VOLATILITY": 41
+      },
+      "total_transitions": 574,
+      "transitions_matrix": {
+        "RANGING->TRENDING_BULLISH": 62,
+        "TRENDING_BULLISH->RANGING": 75,
+        "RANGING->TRENDING_BEARISH": 128,
+        "TRENDING_BEARISH->RANGING": 117,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 10,
+        "RANGING->HIGH_VOLATILITY": 50,
+        "HIGH_VOLATILITY->RANGING": 48,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 26,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 25,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 15,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 18
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 0.9979,
+        "ker_valid_range": true,
+        "sigma_min": 0.005,
+        "sigma_max": 0.089919,
+        "sigma_valid_range": true
+      }
+    },
+    "HAVN": {
+      "total_bars": 1031,
+      "warmup_abstentions": 27,
+      "ready_predictions": 1004,
+      "label_counts": {
+        "TRENDING_BULLISH": 99,
+        "TRENDING_BEARISH": 113,
+        "RANGING": 336,
+        "HIGH_VOLATILITY": 456,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 2.62,
+        "HIGH_VOLATILITY": 44.23,
+        "TRENDING_BEARISH": 10.96,
+        "RANGING": 32.59,
+        "TRENDING_BULLISH": 9.6
+      },
+      "max_streaks": {
+        "HIGH_VOLATILITY": 76,
+        "TRENDING_BEARISH": 14,
+        "RANGING": 20,
+        "TRENDING_BULLISH": 9
+      },
+      "total_transitions": 254,
+      "transitions_matrix": {
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 17,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 18,
+        "HIGH_VOLATILITY->RANGING": 46,
+        "RANGING->HIGH_VOLATILITY": 43,
+        "RANGING->TRENDING_BEARISH": 31,
+        "RANGING->TRENDING_BULLISH": 15,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 19,
+        "TRENDING_BEARISH->RANGING": 25,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 18,
+        "TRENDING_BULLISH->RANGING": 18,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 4
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0006,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.00844,
+        "sigma_max": 0.085467,
+        "sigma_valid_range": true
+      }
+    },
+    "HMDP": {
+      "total_bars": 2281,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2254,
+      "label_counts": {
+        "TRENDING_BULLISH": 519,
+        "TRENDING_BEARISH": 380,
+        "RANGING": 1260,
+        "HIGH_VOLATILITY": 95,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.18,
+        "TRENDING_BULLISH": 22.75,
+        "RANGING": 55.24,
+        "TRENDING_BEARISH": 16.66,
+        "HIGH_VOLATILITY": 4.16
+      },
+      "max_streaks": {
+        "TRENDING_BULLISH": 26,
+        "RANGING": 20,
+        "TRENDING_BEARISH": 22,
+        "HIGH_VOLATILITY": 37
+      },
+      "total_transitions": 521,
+      "transitions_matrix": {
+        "TRENDING_BULLISH->RANGING": 105,
+        "RANGING->TRENDING_BULLISH": 92,
+        "RANGING->TRENDING_BEARISH": 116,
+        "TRENDING_BEARISH->RANGING": 104,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 8,
+        "RANGING->HIGH_VOLATILITY": 31,
+        "HIGH_VOLATILITY->RANGING": 30,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 12,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 9,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 9,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 5
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.005,
+        "sigma_max": 0.129121,
+        "sigma_valid_range": true
+      }
+    },
+    "MOTR": {
+      "total_bars": 2281,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2254,
+      "label_counts": {
+        "TRENDING_BULLISH": 330,
+        "TRENDING_BEARISH": 357,
+        "RANGING": 1009,
+        "HIGH_VOLATILITY": 558,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.18,
+        "TRENDING_BULLISH": 14.47,
+        "RANGING": 44.23,
+        "HIGH_VOLATILITY": 24.46,
+        "TRENDING_BEARISH": 15.65
+      },
+      "max_streaks": {
+        "TRENDING_BULLISH": 18,
+        "RANGING": 18,
+        "HIGH_VOLATILITY": 82,
+        "TRENDING_BEARISH": 9
+      },
+      "total_transitions": 716,
+      "transitions_matrix": {
+        "TRENDING_BULLISH->RANGING": 56,
+        "RANGING->TRENDING_BULLISH": 55,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 39,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 34,
+        "RANGING->TRENDING_BEARISH": 104,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 44,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 43,
+        "TRENDING_BEARISH->RANGING": 98,
+        "RANGING->HIGH_VOLATILITY": 115,
+        "HIGH_VOLATILITY->RANGING": 121,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 6,
+        "TRENDING_BULLISH->TRENDING_BEARISH": 1
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.005396,
+        "sigma_max": 0.117634,
+        "sigma_valid_range": true
+      }
+    },
+    "ORCX": {
+      "total_bars": 2281,
+      "warmup_abstentions": 27,
+      "ready_predictions": 2254,
+      "label_counts": {
+        "TRENDING_BULLISH": 447,
+        "TRENDING_BEARISH": 339,
+        "RANGING": 1118,
+        "HIGH_VOLATILITY": 350,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.18,
+        "RANGING": 49.01,
+        "TRENDING_BEARISH": 14.86,
+        "TRENDING_BULLISH": 19.6,
+        "HIGH_VOLATILITY": 15.34
+      },
+      "max_streaks": {
+        "RANGING": 36,
+        "TRENDING_BEARISH": 12,
+        "TRENDING_BULLISH": 20,
+        "HIGH_VOLATILITY": 33
+      },
+      "total_transitions": 556,
+      "transitions_matrix": {
+        "RANGING->TRENDING_BEARISH": 105,
+        "TRENDING_BEARISH->RANGING": 97,
+        "RANGING->TRENDING_BULLISH": 74,
+        "TRENDING_BULLISH->RANGING": 86,
+        "RANGING->HIGH_VOLATILITY": 53,
+        "HIGH_VOLATILITY->RANGING": 48,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 14,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 29,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 29,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 12,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 9
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.005,
+        "sigma_max": 0.172551,
+        "sigma_valid_range": true
+      }
+    },
+    "PLNX": {
+      "total_bars": 1032,
+      "warmup_abstentions": 27,
+      "ready_predictions": 1005,
+      "label_counts": {
+        "TRENDING_BULLISH": 35,
+        "TRENDING_BEARISH": 27,
+        "RANGING": 91,
+        "HIGH_VOLATILITY": 852,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 2.62,
+        "HIGH_VOLATILITY": 82.56,
+        "TRENDING_BEARISH": 2.62,
+        "RANGING": 8.82,
+        "TRENDING_BULLISH": 3.39
+      },
+      "max_streaks": {
+        "HIGH_VOLATILITY": 178,
+        "TRENDING_BEARISH": 4,
+        "RANGING": 7,
+        "TRENDING_BULLISH": 5
+      },
+      "total_transitions": 143,
+      "transitions_matrix": {
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 12,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 14,
+        "HIGH_VOLATILITY->RANGING": 38,
+        "RANGING->HIGH_VOLATILITY": 32,
+        "RANGING->TRENDING_BEARISH": 7,
+        "RANGING->TRENDING_BULLISH": 7,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 14,
+        "TRENDING_BEARISH->RANGING": 4,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 1,
+        "TRENDING_BULLISH->RANGING": 4,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 10
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 0.98,
+        "ker_valid_range": true,
+        "sigma_min": 0.01669,
+        "sigma_max": 0.151497,
+        "sigma_valid_range": true
+      }
+    },
+    "ROUT": {
+      "total_bars": 1377,
+      "warmup_abstentions": 27,
+      "ready_predictions": 1350,
+      "label_counts": {
+        "TRENDING_BULLISH": 125,
+        "TRENDING_BEARISH": 103,
+        "RANGING": 455,
+        "HIGH_VOLATILITY": 667,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.96,
+        "HIGH_VOLATILITY": 48.44,
+        "RANGING": 33.04,
+        "TRENDING_BEARISH": 7.48,
+        "TRENDING_BULLISH": 9.08
+      },
+      "max_streaks": {
+        "HIGH_VOLATILITY": 96,
+        "RANGING": 18,
+        "TRENDING_BEARISH": 5,
+        "TRENDING_BULLISH": 13
+      },
+      "total_transitions": 368,
+      "transitions_matrix": {
+        "HIGH_VOLATILITY->RANGING": 81,
+        "RANGING->HIGH_VOLATILITY": 84,
+        "RANGING->TRENDING_BEARISH": 37,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 19,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 20,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 23,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 20,
+        "TRENDING_BULLISH->RANGING": 27,
+        "RANGING->TRENDING_BULLISH": 20,
+        "TRENDING_BEARISH->RANGING": 33,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 4
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0,
+        "ker_max": 0.9677,
+        "ker_valid_range": true,
+        "sigma_min": 0.010585,
+        "sigma_max": 0.099237,
+        "sigma_valid_range": true
+      }
+    },
+    "SONA": {
+      "total_bars": 1378,
+      "warmup_abstentions": 27,
+      "ready_predictions": 1351,
+      "label_counts": {
+        "TRENDING_BULLISH": 185,
+        "TRENDING_BEARISH": 104,
+        "RANGING": 350,
+        "HIGH_VOLATILITY": 712,
+        "UNKNOWN": 27
+      },
+      "label_percentages": {
+        "UNKNOWN": 1.96,
+        "HIGH_VOLATILITY": 51.67,
+        "RANGING": 25.4,
+        "TRENDING_BULLISH": 13.43,
+        "TRENDING_BEARISH": 7.55
+      },
+      "max_streaks": {
+        "HIGH_VOLATILITY": 148,
+        "RANGING": 24,
+        "TRENDING_BULLISH": 20,
+        "TRENDING_BEARISH": 9
+      },
+      "total_transitions": 324,
+      "transitions_matrix": {
+        "HIGH_VOLATILITY->RANGING": 60,
+        "RANGING->TRENDING_BULLISH": 38,
+        "TRENDING_BULLISH->HIGH_VOLATILITY": 27,
+        "HIGH_VOLATILITY->TRENDING_BEARISH": 18,
+        "TRENDING_BEARISH->RANGING": 25,
+        "RANGING->HIGH_VOLATILITY": 54,
+        "TRENDING_BEARISH->HIGH_VOLATILITY": 18,
+        "RANGING->TRENDING_BEARISH": 27,
+        "TRENDING_BULLISH->RANGING": 34,
+        "HIGH_VOLATILITY->TRENDING_BULLISH": 21,
+        "TRENDING_BEARISH->TRENDING_BULLISH": 2
+      },
+      "numerical_integrity": {
+        "ker_min": 0.0003,
+        "ker_max": 1.0,
+        "ker_valid_range": true,
+        "sigma_min": 0.009149,
+        "sigma_max": 0.106677,
+        "sigma_valid_range": true
+      }
+    }
+  },
+  "sensitivity_analysis_aerx": [
+    {
+      "ker_trend_threshold": 0.5,
+      "ker_ranging_threshold": 0.25,
+      "high_volatility_threshold": 0.025,
+      "ready_predictions": 2249,
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 18.98,
+        "RANGING": 57.64,
+        "HIGH_VOLATILITY": 4.61,
+        "TRENDING_BEARISH": 17.57
+      },
+      "total_transitions": 491
+    },
+    {
+      "ker_trend_threshold": 0.4,
+      "ker_ranging_threshold": 0.2,
+      "high_volatility_threshold": 0.025,
+      "ready_predictions": 2249,
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 23.86,
+        "RANGING": 47.89,
+        "HIGH_VOLATILITY": 4.61,
+        "TRENDING_BEARISH": 22.45
+      },
+      "total_transitions": 535
+    },
+    {
+      "ker_trend_threshold": 0.6,
+      "ker_ranging_threshold": 0.3,
+      "high_volatility_threshold": 0.025,
+      "ready_predictions": 2249,
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 15.03,
+        "RANGING": 66.26,
+        "HIGH_VOLATILITY": 4.61,
+        "TRENDING_BEARISH": 12.92
+      },
+      "total_transitions": 440
+    },
+    {
+      "ker_trend_threshold": 0.5,
+      "ker_ranging_threshold": 0.25,
+      "high_volatility_threshold": 0.02,
+      "ready_predictions": 2249,
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 17.79,
+        "RANGING": 54.44,
+        "HIGH_VOLATILITY": 10.98,
+        "TRENDING_BEARISH": 15.6
+      },
+      "total_transitions": 538
+    },
+    {
+      "ker_trend_threshold": 0.5,
+      "ker_ranging_threshold": 0.25,
+      "high_volatility_threshold": 0.03,
+      "ready_predictions": 2249,
+      "label_percentages": {
+        "UNKNOWN": 1.19,
+        "TRENDING_BULLISH": 19.42,
+        "RANGING": 58.26,
+        "HIGH_VOLATILITY": 2.64,
+        "TRENDING_BEARISH": 18.5
+      },
+      "total_transitions": 456
+    }
+  ],
+  "calibration_analysis": {
+    "distribution_type": "HEURISTIC_DISTANCE_NORMALIZED",
+    "is_statistically_calibrated": false,
+    "calibration_assessment": "The prediction distribution is derived from normalized distance-to-threshold boundaries and EWMA volatility scale. Because MANTHAN provides zero independent ground-truth regime annotations, these values represent deterministic heuristic certainty scores rather than empirical Bayesian probabilities.",
+    "recommendation": "Preserve Interface Contract B (ModelPrediction) distribution format summing to 1.0, while explicitly reporting probability calibration status as UNCALIBRATED_HEURISTIC in research manifests."
+  }
+}

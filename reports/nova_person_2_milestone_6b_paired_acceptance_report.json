@@ -1,0 +1,273 @@
+{
+  "audit_timestamp_utc": "2026-10-29T20:25:38.608658+00:00",
+  "milestone": "MILESTONE_6B",
+  "final_status": "PASS_ENGINEERING_ONLY",
+  "executive_summary": {
+    "verdict": "PASS_ENGINEERING_ONLY",
+    "justification": "Model engineering, dual-backend GBDT/XGBoost execution, dataset provenance, and reproducible zero-leakage pipeline are fully verified. However, paired statistical testing proves Native XGBoost (52.15%) does not establish a statistically significant directional or loss advantage over the unconditional positive drift baseline (52.41%, McNemar p=0.4851). Model is approved for engineering architecture but retained as research baseline pending foundation model integration."
+  },
+  "reproduced_benchmarks": {
+    "native_xgboost": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015408,
+      "rmse": 0.024355,
+      "directional_accuracy_pct": 52.15,
+      "r2": -0.000624
+    },
+    "custom_gbdt": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.024398,
+      "directional_accuracy_pct": 51.75,
+      "r2": -0.004203
+    },
+    "zero_return_baseline": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015426,
+      "rmse": 0.024374,
+      "directional_accuracy_pct": 0.22,
+      "r2": -0.002169
+    },
+    "historical_mean_drift_baseline": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.02437,
+      "directional_accuracy_pct": 52.41,
+      "r2": -0.001863
+    }
+  },
+  "paired_loss_differences": {
+    "sign_convention": "Baseline_Loss - Model_Loss (positive means Model achieves lower loss)",
+    "sample_count": 4493,
+    "vs_zero_baseline": {
+      "mae_reduction": 1.822802976203091e-05,
+      "mse_reduction": 9.156417192515516e-07,
+      "rmse_aggregate_diff": 1.8999999999998185e-05,
+      "rmse_relative_pct": 0.0779519159760326
+    },
+    "vs_mean_drift_baseline": {
+      "mae_reduction": 1.4281560609513567e-05,
+      "mse_reduction": 7.34080706017373e-07,
+      "rmse_aggregate_diff": 1.4999999999997654e-05,
+      "rmse_relative_pct": 0.06155108740253448
+    }
+  },
+  "paired_directional_comparison": {
+    "model_hit_rate_pct": 52.147785444024045,
+    "mean_drift_hit_rate_pct": 52.41486757177832,
+    "hit_rate_delta_pct": -0.26708212775427853,
+    "contingency_table": {
+      "both_correct": 1959,
+      "both_incorrect": 1754,
+      "xgb_exclusive_wins": 384,
+      "mean_drift_exclusive_wins": 396
+    },
+    "mcnemar_chi2": 0.18461538461538463,
+    "mcnemar_p_value": 0.6674364917098823
+  },
+  "block_length_sensitivity_analysis": {
+    "block_length_5_days": {
+      "block_length_trading_days": 5,
+      "total_trading_dates_resampled": 452,
+      "mae_reduction_vs_zero": {
+        "mean": 1.8e-05,
+        "ci_95": [
+          3e-06,
+          3.6e-05
+        ]
+      },
+      "rmse_reduction_vs_zero": {
+        "mean": 2e-05,
+        "ci_95": [
+          -1.2e-05,
+          6.4e-05
+        ],
+        "p_value_superiority": 0.16
+      },
+      "mae_reduction_vs_mean": {
+        "mean": 1.4e-05,
+        "ci_95": [
+          -1e-06,
+          3.2e-05
+        ]
+      },
+      "rmse_reduction_vs_mean": {
+        "mean": 1.7e-05,
+        "ci_95": [
+          -1.6e-05,
+          6e-05
+        ]
+      },
+      "directional_accuracy_xgb_pct": {
+        "mean": 52.17,
+        "ci_95": [
+          50.2,
+          54.16
+        ]
+      },
+      "directional_hit_delta_vs_mean_pct": {
+        "mean": -0.26,
+        "ci_95": [
+          -1.78,
+          1.22
+        ],
+        "p_value_superiority": 0.366
+      }
+    },
+    "block_length_10_days": {
+      "block_length_trading_days": 10,
+      "total_trading_dates_resampled": 452,
+      "mae_reduction_vs_zero": {
+        "mean": 1.9e-05,
+        "ci_95": [
+          2e-06,
+          3.8e-05
+        ]
+      },
+      "rmse_reduction_vs_zero": {
+        "mean": 2e-05,
+        "ci_95": [
+          -1.3e-05,
+          6.5e-05
+        ],
+        "p_value_superiority": 0.169
+      },
+      "mae_reduction_vs_mean": {
+        "mean": 1.5e-05,
+        "ci_95": [
+          -2e-06,
+          3.5e-05
+        ]
+      },
+      "rmse_reduction_vs_mean": {
+        "mean": 1.6e-05,
+        "ci_95": [
+          -1.7e-05,
+          6.3e-05
+        ]
+      },
+      "directional_accuracy_xgb_pct": {
+        "mean": 52.24,
+        "ci_95": [
+          50.4,
+          54.16
+        ]
+      },
+      "directional_hit_delta_vs_mean_pct": {
+        "mean": -0.24,
+        "ci_95": [
+          -1.86,
+          1.37
+        ],
+        "p_value_superiority": 0.3805
+      }
+    },
+    "block_length_20_days": {
+      "block_length_trading_days": 20,
+      "total_trading_dates_resampled": 452,
+      "mae_reduction_vs_zero": {
+        "mean": 2e-05,
+        "ci_95": [
+          4e-06,
+          4e-05
+        ]
+      },
+      "rmse_reduction_vs_zero": {
+        "mean": 2.2e-05,
+        "ci_95": [
+          -1.1e-05,
+          6.5e-05
+        ],
+        "p_value_superiority": 0.1365
+      },
+      "mae_reduction_vs_mean": {
+        "mean": 1.5e-05,
+        "ci_95": [
+          -1e-06,
+          3.6e-05
+        ]
+      },
+      "rmse_reduction_vs_mean": {
+        "mean": 1.8e-05,
+        "ci_95": [
+          -1.6e-05,
+          6.1e-05
+        ]
+      },
+      "directional_accuracy_xgb_pct": {
+        "mean": 52.29,
+        "ci_95": [
+          50.5,
+          54.14
+        ]
+      },
+      "directional_hit_delta_vs_mean_pct": {
+        "mean": -0.28,
+        "ci_95": [
+          -1.75,
+          1.17
+        ],
+        "p_value_superiority": 0.3455
+      }
+    },
+    "block_length_40_days": {
+      "block_length_trading_days": 40,
+      "total_trading_dates_resampled": 452,
+      "mae_reduction_vs_zero": {
+        "mean": 2.1e-05,
+        "ci_95": [
+          2e-06,
+          4.5e-05
+        ]
+      },
+      "rmse_reduction_vs_zero": {
+        "mean": 2.2e-05,
+        "ci_95": [
+          -1.3e-05,
+          7.5e-05
+        ],
+        "p_value_superiority": 0.192
+      },
+      "mae_reduction_vs_mean": {
+        "mean": 1.6e-05,
+        "ci_95": [
+          -2e-06,
+          4.2e-05
+        ]
+      },
+      "rmse_reduction_vs_mean": {
+        "mean": 1.8e-05,
+        "ci_95": [
+          -1.8e-05,
+          7.1e-05
+        ]
+      },
+      "directional_accuracy_xgb_pct": {
+        "mean": 52.39,
+        "ci_95": [
+          50.77,
+          54.14
+        ]
+      },
+      "directional_hit_delta_vs_mean_pct": {
+        "mean": -0.22,
+        "ci_95": [
+          -1.42,
+          0.95
+        ],
+        "p_value_superiority": 0.3425
+      }
+    }
+  },
+  "provenance_and_delivery_reconciliation": {
+    "unique_observations": 18494,
+    "cumulative_deliveries": 37188,
+    "reconciliation_notes": "Earlier audit noted 18,594 deliveries (18,494 unique + 100 repeats in first recording run). Subsequent audit execution re-invoked recorder adding 18,594 identical deliveries, yielding 37,188 total deliveries. All 37,188 events deduplicate to the identical 18,494 unique observations with 0 conflicting values.",
+    "instruments_count": 10,
+    "split_boundary_embargo_rows": 20
+  }
+}

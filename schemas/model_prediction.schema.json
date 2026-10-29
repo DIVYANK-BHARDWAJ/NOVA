@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nova-trading.org/schemas/model_prediction.schema.json",
+  "title": "ModelPrediction",
+  "description": "Standardized prediction output contract produced by Person 2 quantitative research and machine learning models in NOVA (Interface Contract B)",
+  "type": "object",
+  "required": [
+    "model_id",
+    "model_version",
+    "prediction_timestamp",
+    "input_cutoff_timestamp",
+    "instrument_id",
+    "prediction_type",
+    "horizon_bars",
+    "horizon_unit",
+    "prediction_value",
+    "availability_status",
+    "contract_version"
+  ],
+  "properties": {
+    "model_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique model identifier (e.g. 'GBDT_OHLCV_V1', 'TIMESFM_ZERO_SHOT', 'FINBERT_SENTIMENT')"
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Semantic version or artifact checksum of the trained/evaluated model"
+    },
+    "prediction_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp when the prediction was generated"
+    },
+    "input_cutoff_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Point-in-time timestamp: no market information beyond this moment was used (strictly <= prediction_timestamp)"
+    },
+    "instrument_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Target ticker symbol or cross-asset identifier"
+    },
+    "prediction_type": {
+      "type": "string",
+      "enum": [
+        "EXPECTED_RETURN_DECIMAL",
+        "DIRECTIONAL_PROBABILITY",
+        "REGIME_PROBABILITY",
+        "VOLATILITY_ESTIMATE",
+        "SENTIMENT_SCORE"
+      ],
+      "description": "Exact statistical semantic of prediction_value"
+    },
+    "horizon_bars": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Forecast horizon duration in candle bars (strictly positive integer)"
+    },
+    "horizon_unit": {
+      "type": "string",
+      "default": "BARS",
+      "description": "Time unit for prediction horizon"
+    },
+    "prediction_value": {
+      "type": "number",
+      "description": "Primary numerical forecast. Strictly finite float (no NaN, +inf, -inf)"
+    },
+    "prediction_distribution": {
+      "type": ["object", "null"],
+      "description": "Optional quantile breakdown (e.g. q10, q50, q90) or discrete regime probabilities",
+      "default": null
+    },
+    "confidence_or_uncertainty": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Model heuristic confidence or uncertainty penalty in [0.0, 1.0]",
+      "default": null
+    },
+    "availability_status": {
+      "type": "string",
+      "enum": [
+        "READY",
+        "STALE",
+        "FALLBACK_HEURISTIC",
+        "UNAVAILABLE",
+        "INSUFFICIENT_HISTORY"
+      ],
+      "description": "Model inference readiness and data-quality status"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Lineage metadata: configuration fingerprint, training dataset ID, random seed, feature names",
+      "default": {}
+    },
+    "contract_version": {
+      "type": "string",
+      "default": "PROPOSED_V0",
+      "description": "Schema and contract specification version"
+    }
+  },
+  "additionalProperties": false
+}
+

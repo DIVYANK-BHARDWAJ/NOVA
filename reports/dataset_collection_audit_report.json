@@ -1,0 +1,79 @@
+{
+  "dataset_directory": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\data\\replay\\canonical_manthan_v1",
+  "manifest_dataset_id": "canonical_manthan_v1",
+  "source_mode": "HISTORICAL_AND_REPLAY",
+  "raw_deliveries_count": 37188,
+  "unique_observations_count": 18494,
+  "repeated_deliveries_count": 18694,
+  "conflicting_duplicates_count": 0,
+  "rejected_events_count": 0,
+  "tickers_covered": [
+    "AERX",
+    "BLUX",
+    "DSNY",
+    "HAVN",
+    "HMDP",
+    "MOTR",
+    "ORCX",
+    "PLNX",
+    "ROUT",
+    "SONA"
+  ],
+  "per_ticker_breakdown": {
+    "AERX": {
+      "unique_bars": 2276,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-11"
+    },
+    "BLUX": {
+      "unique_bars": 2278,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-13"
+    },
+    "DSNY": {
+      "unique_bars": 2279,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-14"
+    },
+    "HAVN": {
+      "unique_bars": 1031,
+      "start_date": "2021-10-11",
+      "end_date": "2025-11-17"
+    },
+    "HMDP": {
+      "unique_bars": 2281,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-18"
+    },
+    "MOTR": {
+      "unique_bars": 2281,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-18"
+    },
+    "ORCX": {
+      "unique_bars": 2281,
+      "start_date": "2016-10-24",
+      "end_date": "2025-11-18"
+    },
+    "PLNX": {
+      "unique_bars": 1032,
+      "start_date": "2021-10-12",
+      "end_date": "2025-11-19"
+    },
+    "ROUT": {
+      "unique_bars": 1377,
+      "start_date": "2020-06-01",
+      "end_date": "2025-11-19"
+    },
+    "SONA": {
+      "unique_bars": 1378,
+      "start_date": "2020-06-01",
+      "end_date": "2025-11-20"
+    }
+  },
+  "rejections_summary": {
+    "conflicts": 0,
+    "other_rejections": 0
+  },
+  "provenance_intact": true
+}

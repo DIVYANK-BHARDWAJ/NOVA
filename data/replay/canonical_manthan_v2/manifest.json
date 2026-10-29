@@ -1,0 +1,195 @@
+{
+  "dataset_name": "canonical_manthan_v2",
+  "created_at_utc": "2026-10-29T21:02:22.375286+00:00",
+  "source_system": "MANTHAN_OFFICIAL_REST_GATEWAY",
+  "gateway_url": "http://192.168.65.157:3002",
+  "simulation_clock": {
+    "simulated_date": "2026-05-22",
+    "stage": "development",
+    "active_dataset": "independent_test_2yr"
+  },
+  "universe_discovery": {
+    "tickers_count": 10,
+    "tickers": [
+      "AERX",
+      "BLUX",
+      "DSNY",
+      "HAVN",
+      "HMDP",
+      "MOTR",
+      "ORCX",
+      "PLNX",
+      "ROUT",
+      "SONA"
+    ],
+    "stock_details": [
+      {
+        "symbol": "AERX",
+        "ticker": "AERX",
+        "name": "AeroVanguard Defense & Space Corp.",
+        "description": "AeroVanguard Defense & Space Corp. is a global security and aerospace contractor specializing in advanced tactical aircraft, missile defense interceptors, hypersonics, and satellite communications systems. Its flagship Vanguard-35 Lightning stealth fighter and AegisShield air defense systems serve allied defense departments around the globe."
+      },
+      {
+        "symbol": "BLUX",
+        "ticker": "BLUX",
+        "name": "BlueMatrix Enterprise Systems Inc.",
+        "description": "BlueMatrix Enterprise Systems Inc. is an enterprise hybrid cloud, artificial intelligence, and mainframe computing corporation. It develops enterprise quantum computing hardware, BlueMatrix Hybrid Cloud architecture powered by Scarlet Linux OpenSphere, and automated IT consulting services. The company powers critical transactional infrastructure for global banks, defense agencies, and telecommunications operators."
+      },
+      {
+        "symbol": "DSNY",
+        "ticker": "DSNY",
+        "name": "DreamScape Entertainment Universe",
+        "description": "DreamScape Entertainment Universe is a diversified family entertainment and media enterprise. It operates global DreamWorld Theme Parks and resorts, motion picture studios including AnimStudio, HeroComics Studios, and Galactic Cinema, and consumer licensing businesses. Its direct-to-consumer segment operates the DreamStream+ digital subscription streaming network delivering premier animated, family, and theatrical entertainment worldwide."
+      },
+      {
+        "symbol": "HAVN",
+        "ticker": "HAVN",
+        "name": "HavenStay Travel & Accommodations Inc.",
+        "description": "HavenStay Travel & Accommodations Inc. operates an online travel marketplace facilitating short-term homestays, vacation rentals, and experiential tourism. Connecting property hosts with travelers across over 200 countries, HavenStay offers unique accommodations ranging from private residences to boutique stays, powered by the HavenShield guest protection guarantee."
+      },
+      {
+        "symbol": "HMDP",
+        "ticker": "HMDP",
+        "name": "Haven Depot Home Improvement Corp.",
+        "description": "Haven Depot Home Improvement Corp. is the largest specialized home improvement retail merchant, operating warehouse-style retail stores across North America. Its stores offer building materials, home decor, lawn and garden supplies, and professional installation services to DIY homeowners and professional building contractors, supported by its dedicated ProTrade Distribution commercial supply network."
+      },
+      {
+        "symbol": "MOTR",
+        "ticker": "MOTR",
+        "name": "MotorWorks Global Holdings Corp.",
+        "description": "MotorWorks Global Holdings Corp. designs, manufactures, and markets light-duty trucks, passenger automobiles, crossovers, and commercial transport vehicles worldwide. Operating marquee vehicle brands including Vanguard Prestige, Titan Trucks, and Sterling Motors, the company is advancing electric vehicle transition through its proprietary UltraVolt battery propulsion platform and AutoCruise hands-free driving technology."
+      },
+      {
+        "symbol": "ORCX",
+        "ticker": "ORCX",
+        "name": "Oracrest Cloud Systems Inc.",
+        "description": "Oracrest Cloud Systems Inc. provides enterprise cloud infrastructure, autonomous database management systems, and enterprise software solutions. Its flagship Oracrest Cloud Infrastructure (OCI) delivers high-performance compute clusters and autonomous data warehousing, while its Fusion Enterprise suite automates corporate supply chain, human capital, and enterprise resource planning for multinational organizations."
+      },
+      {
+        "symbol": "PLNX",
+        "ticker": "PLNX",
+        "name": "Polestar Analytics Corp.",
+        "description": "Polestar Analytics Corp. builds enterprise software platforms that enable organizations to integrate, analyze, and manage complex operational data. Its Sentinel Platform serves defense and intelligence agencies with secure intelligence analysis, while its DataMatrix Platform powers data pipelines for commercial enterprises. Its Enterprise AI Suite connects large language models directly with operational data infrastructure."
+      },
+      {
+        "symbol": "ROUT",
+        "ticker": "ROUT",
+        "name": "RouteWave Mobility Technologies Inc.",
+        "description": "RouteWave Mobility Technologies Inc. operates a global platform connecting consumers with mobility services, on-demand food and grocery delivery, and commercial freight logistics. Through its RouteWave Rider app and RouteWave Delivery network, the company provides multimodal urban transport across thousands of metropolitan markets globally."
+      },
+      {
+        "symbol": "SONA",
+        "ticker": "SONA",
+        "name": "Sonata Digital Audio Media Inc.",
+        "description": "Sonata Digital Audio Media Inc. is an audio streaming and podcast subscription network operating globally. Its streaming platform provides access to tens of millions of songs, podcasts, and audiobooks, monetized through Sonata Premium subscriptions and an automated programmatic audio advertising network."
+      }
+    ]
+  },
+  "instrument_summaries": {
+    "AERX": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "f90bd4097c201b1144535a73a33b7ddc1cb776c8a6cfe7a884be3bdbba46d931"
+    },
+    "BLUX": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "53c935abd5c330b7d53bcfe68ac1ed139209d903ed56f81d25d16be837861000"
+    },
+    "DSNY": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "4d39fe2c0468c02cc8b1e2b2e7e63c568be1bb1d022adb53cfd4db32c7c46ea1"
+    },
+    "HAVN": {
+      "listing_date": "2020-12-10",
+      "requested_start_date": "2020-12-10",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 1367,
+      "reported_total_records": 1367,
+      "earliest_date": "2020-12-10",
+      "latest_date": "2026-05-21",
+      "response_sha256": "b3af075c8a2a2817e227427ca8d6e2cb0a403b72632bbf89949c3e2a6a7be31e"
+    },
+    "HMDP": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "b13cbc9fcb4100804dad0be00a8d31fd63c4a4f5e1e74666e3cec122430927b6"
+    },
+    "MOTR": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "fb174a643a4d0233c6584f6ece28f36de36d06fffed02ebff78881917156e587"
+    },
+    "ORCX": {
+      "listing_date": "2016-10-24",
+      "requested_start_date": "2016-10-24",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2407,
+      "reported_total_records": 2407,
+      "earliest_date": "2016-10-24",
+      "latest_date": "2026-05-21",
+      "response_sha256": "c16239cadf02215e72560e548f55046a68b6a346d996302d5fdca9b83b91431a"
+    },
+    "PLNX": {
+      "listing_date": "2020-09-30",
+      "requested_start_date": "2020-09-30",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 1417,
+      "reported_total_records": 1417,
+      "earliest_date": "2020-09-30",
+      "latest_date": "2026-05-21",
+      "response_sha256": "c22e87df8df8a7e8b79cdd247aa0db9607dd0ed10b53283e81465ed4b3880b24"
+    },
+    "ROUT": {
+      "listing_date": "2019-05-10",
+      "requested_start_date": "2019-05-10",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 1768,
+      "reported_total_records": 1768,
+      "earliest_date": "2019-05-10",
+      "latest_date": "2026-05-21",
+      "response_sha256": "b70dc1b5b9e67df64aba6026eb9ceaec56d866459b3617d3af00c5201d4ac326"
+    },
+    "SONA": {
+      "listing_date": "2018-04-03",
+      "requested_start_date": "2018-04-03",
+      "requested_end_date": "2026-05-21",
+      "returned_records": 2046,
+      "reported_total_records": 2046,
+      "earliest_date": "2018-04-03",
+      "latest_date": "2026-05-21",
+      "response_sha256": "2f87b293f5efd65bda5de9efaccbdbbc37d5ccb6b48bf4ea56d6512b6d32348b"
+    }
+  },
+  "total_observations_count": 21040,
+  "unique_fingerprints_count": 21040,
+  "file_name": "observations.jsonl",
+  "file_sha256": "fb485fbf2a393c26730d8a6d6386e0a39df6206c84a4a241ab4c347bb166b738",
+  "file_size_bytes": 7368846
+}

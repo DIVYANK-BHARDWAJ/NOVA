@@ -1,0 +1,265 @@
+{
+  "audit_timestamp_utc": "2026-10-29T20:19:25.240434+00:00",
+  "audit_status": "PASS_RESEARCH_ACCEPTANCE",
+  "data_provenance": {
+    "source": "MANTHAN API GET /api/v1/stocks/history",
+    "historical_discrepancy_resolved": true,
+    "discrepancy_explanation": "Earlier feasibility probe naively queried days=90 (returning 61-62 bars per ticker, 615 total). Subsequent official API spec inspection revealed ?start_date= and ?ticker= parameters which allow querying up to 10 years of genuine historical daily OHLCV directly from the authorized platform.",
+    "total_raw_observations": 18494,
+    "instruments_count": 10,
+    "files_breakdown": {
+      "AERX": {
+        "file": "AERX_history_full.json",
+        "observations": 2276,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-11",
+        "sha256": "f6fecb0b29fbc0c9e4cd1f0987ecb3ce2e15adcc627444336c2d0823da0d253d",
+        "current_simulation_date": "2025-11-12"
+      },
+      "BLUX": {
+        "file": "BLUX_history_full.json",
+        "observations": 2278,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-13",
+        "sha256": "2dbcde4e4758701e24c1b8382063cc8a7ccf826851cb4509f900f05f2c5f1b01",
+        "current_simulation_date": "2025-11-14"
+      },
+      "DSNY": {
+        "file": "DSNY_history_full.json",
+        "observations": 2279,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-14",
+        "sha256": "56b2d1ddb8858129592b4bcc8940a1d48de6de9ddc04d62223ab81b476e3b178",
+        "current_simulation_date": "2025-11-17"
+      },
+      "HAVN": {
+        "file": "HAVN_history_full.json",
+        "observations": 1031,
+        "start_date": "2021-10-11",
+        "end_date": "2025-11-17",
+        "sha256": "61be0340a4f2d6d6e20142980544310395f45b9cbf8fa782969eb5d25c463a1a",
+        "current_simulation_date": "2025-11-18"
+      },
+      "HMDP": {
+        "file": "HMDP_history_full.json",
+        "observations": 2281,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-18",
+        "sha256": "f4d7f2183f23f507096bd24e3fb3382e1671d90378ffe5679a2e37d73be4f025",
+        "current_simulation_date": "2025-11-19"
+      },
+      "MOTR": {
+        "file": "MOTR_history_full.json",
+        "observations": 2281,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-18",
+        "sha256": "87585a9bfea160097392c86198653653bbd65c2ce68d9e65f38b9716f200bb25",
+        "current_simulation_date": "2025-11-19"
+      },
+      "ORCX": {
+        "file": "ORCX_history_full.json",
+        "observations": 2281,
+        "start_date": "2016-10-24",
+        "end_date": "2025-11-18",
+        "sha256": "b19d14bd551ae1b1deaa27495fa4d7689c202d69003c56ea4dd8f7fb0d6d06b9",
+        "current_simulation_date": "2025-11-19"
+      },
+      "PLNX": {
+        "file": "PLNX_history_full.json",
+        "observations": 1032,
+        "start_date": "2021-10-12",
+        "end_date": "2025-11-19",
+        "sha256": "bd4646961ae065e5edbef96cc0d61f1d4433d442b3c473d08949c7018128ef48",
+        "current_simulation_date": "2025-11-20"
+      },
+      "ROUT": {
+        "file": "ROUT_history_full.json",
+        "observations": 1377,
+        "start_date": "2020-06-01",
+        "end_date": "2025-11-19",
+        "sha256": "7a52899bfc884c54a88fa87d3fbfa0d9fba7d9e825bb7d87b07fbfd156a6c923",
+        "current_simulation_date": "2025-11-20"
+      },
+      "SONA": {
+        "file": "SONA_history_full.json",
+        "observations": 1378,
+        "start_date": "2020-06-01",
+        "end_date": "2025-11-20",
+        "sha256": "6b98254dcf45ab89595ff2d320600cc69da1acda84a3531447651ceaa66d3b5c",
+        "current_simulation_date": "2025-11-21"
+      }
+    },
+    "replay_canonical_observations": 18494,
+    "replay_deliveries_total": 37188
+  },
+  "model_identity": {
+    "model_id": "XGBOOST_NATIVE",
+    "version": "1.0.0",
+    "artifact_path": "C:\\Users\\DIVYANK BHARDWAJ\\Desktop\\Projects\\jnncehackathon\\jnncehackathon\\artifacts\\models\\xgboost_native_v1\\model.json",
+    "artifact_checksum": "d930a05ffe39875f7e6c162406d95e403a62645a52937e0503dc109fc5d67d33",
+    "checksum_verified": true,
+    "backend": "NATIVE_XGBOOST",
+    "xgboost_version": "3.2.0",
+    "max_reload_numerical_diff": 0.0
+  },
+  "chronological_partitions": {
+    "train": {
+      "dates": [
+        "2016-12-02",
+        "2022-04-14"
+      ],
+      "count": 9201
+    },
+    "validation": {
+      "dates": [
+        "2022-04-19",
+        "2024-01-31"
+      ],
+      "count": 4490
+    },
+    "test": {
+      "dates": [
+        "2024-02-02",
+        "2025-11-19"
+      ],
+      "count": 4493
+    },
+    "purged_embargo_rows": 20
+  },
+  "reproduced_benchmarks": {
+    "native_xgboost": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015408,
+      "rmse": 0.024355,
+      "directional_accuracy_pct": 52.15,
+      "r2": -0.000624
+    },
+    "custom_gbdt": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.024398,
+      "directional_accuracy_pct": 51.75,
+      "r2": -0.004203
+    },
+    "zero_baseline": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015426,
+      "rmse": 0.024374,
+      "directional_accuracy_pct": 0.22,
+      "r2": -0.002169
+    },
+    "historical_mean_baseline": {
+      "split": "test",
+      "sample_count": 4493,
+      "mae": 0.015423,
+      "rmse": 0.02437,
+      "directional_accuracy_pct": 52.41,
+      "r2": -0.001863
+    }
+  },
+  "per_instrument_performance": {
+    "AERX": {
+      "split": "test",
+      "sample_count": 445,
+      "mae": 0.009085,
+      "rmse": 0.014364,
+      "directional_accuracy_pct": 54.38,
+      "r2": 0.000114
+    },
+    "BLUX": {
+      "split": "test",
+      "sample_count": 447,
+      "mae": 0.011417,
+      "rmse": 0.016961,
+      "directional_accuracy_pct": 54.14,
+      "r2": -0.005158
+    },
+    "DSNY": {
+      "split": "test",
+      "sample_count": 448,
+      "mae": 0.011069,
+      "rmse": 0.017603,
+      "directional_accuracy_pct": 51.34,
+      "r2": 0.033067
+    },
+    "HAVN": {
+      "split": "test",
+      "sample_count": 449,
+      "mae": 0.015416,
+      "rmse": 0.022864,
+      "directional_accuracy_pct": 50.33,
+      "r2": -0.001241
+    },
+    "HMDP": {
+      "split": "test",
+      "sample_count": 450,
+      "mae": 0.010476,
+      "rmse": 0.013781,
+      "directional_accuracy_pct": 49.11,
+      "r2": 0.000389
+    },
+    "MOTR": {
+      "split": "test",
+      "sample_count": 450,
+      "mae": 0.014623,
+      "rmse": 0.021894,
+      "directional_accuracy_pct": 58.0,
+      "r2": -0.002389
+    },
+    "ORCX": {
+      "split": "test",
+      "sample_count": 450,
+      "mae": 0.018372,
+      "rmse": 0.029899,
+      "directional_accuracy_pct": 50.89,
+      "r2": -0.004509
+    },
+    "PLNX": {
+      "split": "test",
+      "sample_count": 451,
+      "mae": 0.028095,
+      "rmse": 0.041771,
+      "directional_accuracy_pct": 51.22,
+      "r2": -0.013765
+    },
+    "ROUT": {
+      "split": "test",
+      "sample_count": 451,
+      "mae": 0.017276,
+      "rmse": 0.024713,
+      "directional_accuracy_pct": 49.22,
+      "r2": -0.003389
+    },
+    "SONA": {
+      "split": "test",
+      "sample_count": 452,
+      "mae": 0.018093,
+      "rmse": 0.02599,
+      "directional_accuracy_pct": 52.88,
+      "r2": -0.006021
+    }
+  },
+  "uncertainty_analysis": {
+    "block_size_bars": 20,
+    "n_bootstraps": 2000,
+    "directional_accuracy_mean_pct": 52.19,
+    "directional_accuracy_ci_95": [
+      50.81,
+      53.66
+    ],
+    "p_value_vs_50pct_random_walk": 0.002,
+    "rmse_mean": 0.024384,
+    "rmse_ci_95": [
+      0.02236,
+      0.026457
+    ],
+    "mae_mean": 0.015442,
+    "mae_ci_95": [
+      0.01449,
+      0.016461
+    ]
+  }
+}
