@@ -81,12 +81,17 @@ class LiveDecisionConfig:
     kappa_uncertainty: float = 0.25      # Uncertainty penalty multiplier
     theta_edge_ratio: float = 0.15       # Minimum Edge / sigma threshold
 
+    # 8b. ML Blending
+    ml_blend_confidence_min: float = 0.40
+    ml_blend_weight: float = 0.30
+
     # 9. Online Weights Multiplier
     online_eta: float = 0.10
     multiplier_min: float = 0.30
     multiplier_max: float = 1.50
     online_reward_window: int = 20
     ic_kill_switch_window: int = 30
+    specialist_reward_score_threshold: float = 0.20
 
     # 10. Sizing
     atr_period: int = 14
@@ -101,16 +106,21 @@ class LiveDecisionConfig:
     # 11. Longs / Shorts Filter
     ema_long_filter_window: int = 30
     short_square_off_days_buffer: int = 3
+    bearish_news_veto_threshold: float = -0.30
     allow_shorts: bool = False
 
     # 12. Exits
     atr_trailing_exit_multiplier: float = 2.5
+    bad_news_shock_threshold: float = -0.70
+    signal_decay_score_threshold: float = -0.10
     min_hold_days_before_decay_exit: int = 2
     long_term_tax_threshold_days: int = 365
     long_term_tax_buffer_days: int = 25
+    tax_deferral_min_edge_ratio: float = -0.10
 
     # 13. Portfolio Guards
     drawdown_tier1_half_size: float = 0.06   # 6% DD halves size
+    drawdown_tier1_size_scale: float = 0.50  # 50% scale
     drawdown_tier2_exits_only: float = 0.12  # 12% DD exits only
     min_cash_reserve_fraction: float = 0.10  # 10% cash minimum
     max_cash_reserve_fraction: float = 0.15  # 15% cash target
@@ -155,10 +165,22 @@ class LiveDecisionConfig:
             ("drawdown_tier2_exits_only", self.drawdown_tier2_exits_only),
             ("min_cash_reserve_fraction", self.min_cash_reserve_fraction),
             ("max_cash_reserve_fraction", self.max_cash_reserve_fraction),
+            ("ml_blend_confidence_min", self.ml_blend_confidence_min),
+            ("ml_blend_weight", self.ml_blend_weight),
+            ("specialist_reward_score_threshold", self.specialist_reward_score_threshold),
+            ("drawdown_tier1_size_scale", self.drawdown_tier1_size_scale),
         ]:
             validate_finite(val, name)
             if val < 0.0:
                 raise ContractValidationError(f"'{name}' cannot be negative, got {val}")
+
+        for name, val in [
+            ("bad_news_shock_threshold", self.bad_news_shock_threshold),
+            ("signal_decay_score_threshold", self.signal_decay_score_threshold),
+            ("tax_deferral_min_edge_ratio", self.tax_deferral_min_edge_ratio),
+            ("bearish_news_veto_threshold", self.bearish_news_veto_threshold),
+        ]:
+            validate_finite(val, name)
 
         for name, ival in [
             ("sma_fast_window", self.sma_fast_window),
@@ -384,9 +406,9 @@ class LiveDecisionCoreEngine:
         # Optional ML forecast adjustment
         ml_pred: PredictionResult = self.predictor.predict(bars)
         mu_hat = score * sigma * self.config.score_to_mu_scale
-        if not ml_pred.is_fallback and ml_pred.confidence > 0.4:
-            # Blend statistical ridge forecast with heuristic mu_hat
-            mu_hat = 0.7 * mu_hat + 0.3 * ml_pred.expected_return
+        if not ml_pred.is_fallback and ml_pred.confidence >= self.config.ml_blend_confidence_min:
+            w_ml = self.config.ml_blend_weight
+            mu_hat = (1.0 - w_ml) * mu_hat + w_ml * ml_pred.expected_return
             reasons.append(f"ML_BLEND_PRED_{ml_pred.expected_return:+.4f}")
 
         # Round-trip cost fraction c
@@ -435,7 +457,7 @@ class LiveDecisionCoreEngine:
             return self._build_abstain(ticker, as_of, reasons, ActionType.NO_TRADE, 0.0)
 
         if current_drawdown >= self.config.drawdown_tier1_half_size:
-            target_exposure *= 0.50
+            target_exposure *= self.config.drawdown_tier1_size_scale
             reasons.append(f"DD_GUARD_TIER1_HALF_SIZE_{current_drawdown:.3f}")
 
         # 2. ATR Trailing Stop Exit (2.5x ATR)
@@ -446,7 +468,7 @@ class LiveDecisionCoreEngine:
                 return self._build_decision(ticker, as_of, ActionType.EXIT, 0.0, reasons, mu_hat, c, edge, edge_ratio, u)
 
         # 3. Bad News Shock Exit
-        if pos.quantity > 0 and news_sentiment_score <= -0.70:
+        if pos.quantity > 0 and news_sentiment_score <= self.config.bad_news_shock_threshold:
             reasons.append(f"EXIT_BAD_NEWS_SHOCK_{news_sentiment_score:.2f}")
             return self._build_decision(ticker, as_of, ActionType.EXIT, 0.0, reasons, mu_hat, c, edge, edge_ratio, u)
 
@@ -455,13 +477,13 @@ class LiveDecisionCoreEngine:
             days_held = pos.days_held
             threshold = self.config.long_term_tax_threshold_days
             buffer = self.config.long_term_tax_buffer_days
-            if (threshold - buffer) <= days_held < threshold and edge_ratio > -0.10:
+            if (threshold - buffer) <= days_held < threshold and edge_ratio > self.config.tax_deferral_min_edge_ratio:
                 reasons.append(f"TAX_AWARE_DEFERRAL_HOLD_{days_held}_DAYS")
                 return self._build_decision(ticker, as_of, ActionType.HOLD, current_exposure, reasons, mu_hat, c, edge, edge_ratio, u)
 
         # 5. Signal Decay Exit after min hold
         if pos.quantity > 0 and pos.days_held >= self.config.min_hold_days_before_decay_exit:
-            if score < -0.10 or edge <= 0.0:
+            if score < self.config.signal_decay_score_threshold or edge <= 0.0:
                 reasons.append(f"EXIT_SIGNAL_DECAY_SCORE_{score:.3f}")
                 return self._build_decision(ticker, as_of, ActionType.EXIT, 0.0, reasons, mu_hat, c, edge, edge_ratio, u)
 
@@ -471,7 +493,7 @@ class LiveDecisionCoreEngine:
             edge > 0
             and edge_ratio > self.config.theta_edge_ratio
             and c_t > ema30
-            and news_sentiment_score > -0.30
+            and news_sentiment_score > self.config.bearish_news_veto_threshold
             and market_breadth_positive
         )
 
@@ -518,7 +540,7 @@ class LiveDecisionCoreEngine:
 
         rewards: list[float] = [0.0, 0.0, 0.0]
         for k, s_k in enumerate([s1, s2, s3]):
-            if abs(s_k) > 0.20:
+            if abs(s_k) > self.config.specialist_reward_score_threshold:
                 sgn = 1.0 if s_k > 0 else -1.0
                 rewards[k] = sgn * (abnormal_return / max(1e-4, sigma))
 
