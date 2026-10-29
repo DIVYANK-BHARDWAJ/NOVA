@@ -82,6 +82,8 @@ class KafkaConfig:
     session_timeout_ms: int = 45000
     max_poll_interval_ms: int = 300000
     log_level: str = "INFO"
+    trading_api_url: str = "http://192.168.65.157:3002"
+    bot_access_token: str = ""
 
     def is_placeholder_broker(self) -> bool:
         """Check if bootstrap_servers contains placeholder IP indicators."""
@@ -156,6 +158,7 @@ class KafkaConfig:
 
     def safe_repr(self) -> str:
         """Return safe string representation masking potential credentials."""
+        token_status = "***SET***" if self.bot_access_token else "NOT_SET"
         return (
             f"KafkaConfig(bootstrap_servers='{self.bootstrap_servers}', "
             f"security_protocol='{self.security_protocol}', "
@@ -163,7 +166,9 @@ class KafkaConfig:
             f"topic_ticks='{self.topic_ticks}', "
             f"topic_news='{self.topic_news}', "
             f"auto_offset_reset='{self.auto_offset_reset}', "
-            f"enable_auto_commit={self.enable_auto_commit})"
+            f"enable_auto_commit={self.enable_auto_commit}, "
+            f"trading_api_url='{self.trading_api_url}', "
+            f"token={token_status})"
         )
 
     def __repr__(self) -> str:
@@ -221,6 +226,16 @@ class KafkaConfig:
         max_poll_interval_ms = _parse_int_env("KAFKA_MAX_POLL_INTERVAL_MS", 300000)
 
 
+        trading_api_url = (
+            os.getenv("TRADING_API_URL")
+            or os.getenv("GATEWAY_URL")
+            or "http://192.168.65.157:3002"
+        ).strip().rstrip("/")
+        bot_access_token = (
+            os.getenv("BOT_ACCESS_TOKEN")
+            or ""
+        ).strip()
+
         config = cls(
             bootstrap_servers=bootstrap_servers.strip(),
             security_protocol=security_protocol.strip(),
@@ -233,6 +248,8 @@ class KafkaConfig:
             session_timeout_ms=session_timeout_ms,
             max_poll_interval_ms=max_poll_interval_ms,
             log_level=log_level.strip().upper(),
+            trading_api_url=trading_api_url,
+            bot_access_token=bot_access_token,
         )
         return config
 
