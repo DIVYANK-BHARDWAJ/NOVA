@@ -33,6 +33,18 @@ class ProfitRealizationConfig:
     trailing_stop_distance_pct: float = 0.03      # 3% trailing distance from peak price
     profit_giveback_max_pct: float = 0.40         # Close if >40% of peak unrealized profit erodes
 
+    # 3-Tier Profit Preservation Ratchet (Unrealized -> Realized)
+    tier1_breakeven_gain_pct: float = 0.02        # +2.0% gain shifts stop to entry + friction
+    tier1_friction_cushion_pct: float = 0.003     # 0.3% roundtrip friction cushion
+    tier2_lock_gain_pct: float = 0.04             # +4.0% gain locks 50% scale-out
+    tier3_tighten_gain_pct: float = 0.07          # +7.0% gain tightens trailing stop
+    tier3_trailing_distance_pct: float = 0.012    # 1.2% tight trailing stop for Tier 3
+
+    # Short position risk & exit parameters
+    short_profit_target_pct: float = 0.04         # 4.0% profit target to cover short
+    short_max_defensive_days: int = 4             # 4 days max hold for shorts (ahead of 10-day exchange rule)
+    short_stop_loss_pct: float = 0.025            # 2.5% tight stop-loss for shorts
+
     # Risk & competition limits
     stop_loss_pct: float = 0.04                   # 4% stop-loss threshold
     max_short_holding_days: int = 10              # 10 trading days short auto-settlement
@@ -46,7 +58,7 @@ class ProfitRealizationConfig:
     target_diversification_max: int = 8           # Maximum target active stock holdings
     max_position_allocation: float = 0.25         # Max 25% equity per position
     min_cash_reserve_fraction: float = 0.20       # Maintain 20% liquid cash cushion
-    config_version: str = "1.0.0"
+    config_version: str = "1.1.0"
 
     def __post_init__(self) -> None:
         for name, val in [
@@ -55,6 +67,12 @@ class ProfitRealizationConfig:
             ("trailing_stop_activation_pct", self.trailing_stop_activation_pct),
             ("trailing_stop_distance_pct", self.trailing_stop_distance_pct),
             ("profit_giveback_max_pct", self.profit_giveback_max_pct),
+            ("tier1_breakeven_gain_pct", self.tier1_breakeven_gain_pct),
+            ("tier2_lock_gain_pct", self.tier2_lock_gain_pct),
+            ("tier3_tighten_gain_pct", self.tier3_tighten_gain_pct),
+            ("tier3_trailing_distance_pct", self.tier3_trailing_distance_pct),
+            ("short_profit_target_pct", self.short_profit_target_pct),
+            ("short_stop_loss_pct", self.short_stop_loss_pct),
             ("stop_loss_pct", self.stop_loss_pct),
             ("min_recycle_edge_ratio", self.min_recycle_edge_ratio),
             ("max_position_allocation", self.max_position_allocation),
@@ -70,8 +88,8 @@ class ProfitRealizationConfig:
         if not (0.0 < self.max_position_allocation <= 1.0):
             raise NumericalValidationError(f"max_position_allocation must be in (0, 1], got {self.max_position_allocation}")
 
-        if self.max_short_holding_days <= 0:
-            raise NumericalValidationError("max_short_holding_days must be positive")
+        if self.max_short_holding_days <= 0 or self.short_max_defensive_days <= 0:
+            raise NumericalValidationError("Short holding day limits must be positive")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,8 +171,9 @@ class ProfitRealizationManager:
                 )
         elif is_short:
             loss_pct = (current_price - entry_price) / entry_price
-            if loss_pct >= self.config.stop_loss_pct:
-                reasons.append(f"STOP_LOSS_SHORT_TRIGGERED_LOSS_{loss_pct:.2%}_EXCEEDS_{self.config.stop_loss_pct:.2%}")
+            effective_short_stop = min(self.config.short_stop_loss_pct, self.config.stop_loss_pct)
+            if loss_pct >= effective_short_stop:
+                reasons.append(f"STOP_LOSS_SHORT_TRIGGERED_LOSS_{loss_pct:.2%}_EXCEEDS_{effective_short_stop:.2%}")
                 return ExitRecommendation(
                     should_exit=True,
                     is_partial=False,
@@ -174,12 +193,48 @@ class ProfitRealizationManager:
                 reasons=tuple(reasons),
             )
 
-        # 3. Dynamic Trailing-Stop Check
+        # 2b. Tax Deferral Window Check (STCG -> LTCG Optimization)
+        # If held for 340-365 days, defer non-emergency discretionary exits to cross 365 days
+        if is_long and (self.config.long_term_tax_threshold_days - self.config.tax_deferral_buffer_days) <= position.holding_days < self.config.long_term_tax_threshold_days:
+            if combined_score > self.config.tax_deferral_min_score:
+                reasons.append("TAX_AWARE_HOLDING_DEFERRAL_LTCG")
+                reasons.append(
+                    f"TAX_DEFERRAL_HOLD_LTCG_WINDOW_DAYS_{position.holding_days}_REMAINING_{self.config.long_term_tax_threshold_days - position.holding_days}"
+                )
+                return ExitRecommendation(
+                    should_exit=False,
+                    is_partial=False,
+                    recommended_action=ActionType.HOLD,
+                    target_exposure=current_exposure,
+                    reasons=tuple(reasons),
+                )
+
         gain_from_entry_pct = position.unrealized_pnl_pct
+        peak_gain_pct = (peak_px - entry_price) / entry_price if (is_long and peak_px > 0.0) else gain_from_entry_pct
+
+        # 3. Dynamic Trailing-Stop Check (Standard Baseline & Tier 3 Tight Trailing Stop)
+        # Tier 3: High Unrealized Profit (+7% gain) -> Tighten Trailing Stop to 1.2%
+        effective_tier3_activation = max(self.config.tier3_tighten_gain_pct, self.config.trailing_stop_activation_pct) if self.config.trailing_stop_activation_pct > 0.04 else self.config.tier3_tighten_gain_pct
+        if is_long and peak_gain_pct >= effective_tier3_activation and peak_px > 0.0:
+            drop_from_peak = (peak_px - current_price) / peak_px
+            if drop_from_peak >= self.config.tier3_trailing_distance_pct:
+                reasons.append("TRAILING_STOP_LONG_TRIGGERED")
+                reasons.append(
+                    f"TIER3_TIGHT_TRAILING_STOP_TRIGGERED_PEAK_{peak_px:.2f}_DROP_{drop_from_peak:.2%}_EXCEEDS_{self.config.tier3_trailing_distance_pct:.2%}"
+                )
+                return ExitRecommendation(
+                    should_exit=True,
+                    is_partial=False,
+                    recommended_action=ActionType.SELL,
+                    target_exposure=0.0,
+                    reasons=tuple(reasons),
+                )
+
         if gain_from_entry_pct >= self.config.trailing_stop_activation_pct:
             if is_long and peak_px > 0.0:
                 drop_from_peak = (peak_px - current_price) / peak_px
                 if drop_from_peak >= self.config.trailing_stop_distance_pct:
+                    reasons.append("TRAILING_STOP_LONG_TRIGGERED")
                     reasons.append(
                         f"TRAILING_STOP_LONG_TRIGGERED_PEAK_{peak_px:.2f}_DROP_{drop_from_peak:.2%}_EXCEEDS_{self.config.trailing_stop_distance_pct:.2%}"
                     )
@@ -193,6 +248,7 @@ class ProfitRealizationManager:
             elif is_short and lowest_px > 0.0:
                 rise_from_lowest = (current_price - lowest_px) / lowest_px
                 if rise_from_lowest >= self.config.trailing_stop_distance_pct:
+                    reasons.append("TRAILING_STOP_SHORT_TRIGGERED")
                     reasons.append(
                         f"TRAILING_STOP_SHORT_TRIGGERED_TROUGH_{lowest_px:.2f}_RISE_{rise_from_lowest:.2%}_EXCEEDS_{self.config.trailing_stop_distance_pct:.2%}"
                     )
@@ -220,7 +276,20 @@ class ProfitRealizationManager:
                     reasons=tuple(reasons),
                 )
 
-        # 5. Take-Profit Target & Partial Exit Scale-Out Check
+        # 5. Take-Profit Target & Tier 2 Partial Exit Scale-Out Check
+        if is_long and gain_from_entry_pct >= self.config.tier2_lock_gain_pct and not position.has_taken_partial_profit:
+            remaining_exposure = current_exposure * (1.0 - self.config.partial_exit_ratio)
+            reasons.append("TAKE_PROFIT_PARTIAL_50PCT_SCALE_OUT")
+            reasons.append("TIER2_PROFIT_LOCK_50PCT_SCALE_OUT")
+            reasons.append(f"PROFIT_TAKING_TIER2_LOCK_GAIN_{gain_from_entry_pct:.2%}")
+            return ExitRecommendation(
+                should_exit=True,
+                is_partial=True,
+                recommended_action=ActionType.SELL,
+                target_exposure=remaining_exposure,
+                reasons=tuple(reasons),
+            )
+
         if gain_from_entry_pct >= self.config.take_profit_threshold_pct and not position.has_taken_partial_profit:
             remaining_exposure = current_exposure * (1.0 - self.config.partial_exit_ratio)
             action = ActionType.SELL if is_long else ActionType.COVER
@@ -236,19 +305,38 @@ class ProfitRealizationManager:
                 reasons=tuple(reasons),
             )
 
-        # 6. Tax Deferral Window Check (STCG -> LTCG Optimization)
-        # If held for 340-365 days, defer non-emergency discretionary exits to cross 365 days
-        if is_long and (self.config.long_term_tax_threshold_days - self.config.tax_deferral_buffer_days) <= position.holding_days < self.config.long_term_tax_threshold_days:
-            if combined_score > self.config.tax_deferral_min_score:
-                reasons.append("TAX_AWARE_HOLDING_DEFERRAL_LTCG")
-                reasons.append(
-                    f"TAX_DEFERRAL_HOLD_LTCG_WINDOW_DAYS_{position.holding_days}_REMAINING_{self.config.long_term_tax_threshold_days - position.holding_days}"
-                )
+        # 6. Tier 1 Break-Even Stop Ratchet
+        if is_long and peak_gain_pct >= self.config.tier1_breakeven_gain_pct:
+            be_floor = entry_price * (1.0 + self.config.tier1_friction_cushion_pct)
+            if current_price <= be_floor:
+                reasons.append(f"TIER1_BREAKEVEN_PROTECTION_EXIT_PRICE_{current_price:.2f}_BELOW_FLOOR_{be_floor:.2f}")
                 return ExitRecommendation(
-                    should_exit=False,
+                    should_exit=True,
                     is_partial=False,
-                    recommended_action=ActionType.HOLD,
-                    target_exposure=current_exposure,
+                    recommended_action=ActionType.SELL,
+                    target_exposure=0.0,
+                    reasons=tuple(reasons),
+                )
+
+        # 7. Asymmetric Defensive Short Policy: Profit Target & Time-Based Exit
+        if is_short:
+            short_gain_pct = (entry_price - current_price) / entry_price
+            if short_gain_pct >= self.config.short_profit_target_pct:
+                reasons.append(f"DEFENSIVE_SHORT_PROFIT_TARGET_REALIZED_{short_gain_pct:.2%}_COVER")
+                return ExitRecommendation(
+                    should_exit=True,
+                    is_partial=False,
+                    recommended_action=ActionType.COVER,
+                    target_exposure=0.0,
+                    reasons=tuple(reasons),
+                )
+            if position.holding_days >= self.config.short_max_defensive_days:
+                reasons.append(f"DEFENSIVE_SHORT_TIME_EXIT_DAYS_{position.holding_days}_LIMIT_{self.config.short_max_defensive_days}")
+                return ExitRecommendation(
+                    should_exit=True,
+                    is_partial=False,
+                    recommended_action=ActionType.COVER,
+                    target_exposure=0.0,
                     reasons=tuple(reasons),
                 )
 
@@ -301,6 +389,42 @@ class ProfitRealizationManager:
             target_exposure=current_exposure,
             reasons=tuple(reasons),
         )
+
+    def calculate_volatility_parity_exposure(
+        self,
+        current_price: float,
+        atr_14: float,
+        portfolio_equity: float,
+        target_risk_fraction: float = 0.0075,
+        is_short: bool = False,
+        min_notional: float = 20000.0,
+        max_exposure_fraction: float = 0.15,
+    ) -> float:
+        """Calculate volatility-parity risk-budgeted position sizing.
+
+        Sizes exposure inversely to 2x ATR14 volatility so that a 2x ATR stop
+        risks exactly target_risk_fraction (default 0.75% = ₹7,500 on ₹10L).
+        Applies a 50% scale factor for short positions.
+        """
+        validate_finite(current_price, "current_price")
+        validate_finite(portfolio_equity, "portfolio_equity")
+        if current_price <= 0.0 or portfolio_equity <= 0.0:
+            return 0.0
+
+        if atr_14 <= 0.0:
+            base_exp = max_exposure_fraction * (0.50 if is_short else 1.0)
+            return min(max_exposure_fraction, base_exp)
+
+        stop_distance = 2.0 * atr_14
+        stop_fraction = stop_distance / current_price
+        raw_exposure = target_risk_fraction / max(0.01, stop_fraction)
+
+        if is_short:
+            raw_exposure *= 0.50
+
+        min_exp = min_notional / portfolio_equity
+        clamped_exp = min(max_exposure_fraction, max(min_exp, raw_exposure))
+        return round(clamped_exp, 4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,3 +567,39 @@ class CapitalRecycler:
             allocations[candidate.ticker] = round(target_exposure, 4)
 
         return allocations
+
+    def calculate_volatility_parity_exposure(
+        self,
+        current_price: float,
+        atr_14: float,
+        portfolio_equity: float,
+        target_risk_fraction: float = 0.0075,
+        is_short: bool = False,
+        min_notional: float = 20000.0,
+        max_exposure_fraction: float = 0.15,
+    ) -> float:
+        """Calculate volatility-parity risk-budgeted position sizing.
+
+        Sizes exposure inversely to 2x ATR14 volatility so that a 2x ATR stop
+        risks exactly target_risk_fraction (default 0.75% = ₹7,500 on ₹10L).
+        Applies a 50% scale factor for short positions.
+        """
+        validate_finite(current_price, "current_price")
+        validate_finite(portfolio_equity, "portfolio_equity")
+        if current_price <= 0.0 or portfolio_equity <= 0.0:
+            return 0.0
+
+        if atr_14 <= 0.0:
+            base_exp = max_exposure_fraction * (0.50 if is_short else 1.0)
+            return min(max_exposure_fraction, base_exp)
+
+        stop_distance = 2.0 * atr_14
+        stop_fraction = stop_distance / current_price
+        raw_exposure = target_risk_fraction / max(0.01, stop_fraction)
+
+        if is_short:
+            raw_exposure *= 0.50
+
+        min_exp = min_notional / portfolio_equity
+        clamped_exp = min(max_exposure_fraction, max(min_exp, raw_exposure))
+        return round(clamped_exp, 4)

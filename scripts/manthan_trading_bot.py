@@ -112,9 +112,9 @@ class ManthanTradingBot:
 
     def __init__(
         self,
-        gateway: str = "http://192.168.65.157:3002",
-        broker: str = "192.168.65.157:9094",
-        username: str = "mn2651",
+        gateway: str = "",
+        broker: str = "",
+        username: str = "",
         token: str = "",
         fast_window: int = 5,
         slow_window: int = 20,
@@ -126,7 +126,8 @@ class ManthanTradingBot:
         pipeline: Optional[Any] = None,
         mock_mode: bool = False,
     ) -> None:
-        self.gateway = gateway.rstrip("/")
+        effective_gw = gateway or (adapter.config.api_base_url if adapter else "")
+        self.gateway = effective_gw.rstrip("/") if effective_gw else ""
         self.broker = broker
         self.username = username
         self.token = token
@@ -204,8 +205,9 @@ class ManthanTradingBot:
         # If risk_gate is attached and order hasn't been explicitly pre-authorized, evaluate it
         if not authorized_by_risk and self.risk_gate is not None:
             now_utc = datetime.now(timezone.utc)
-            avail_cash = 1_000_000.0
-            port_val = 1_000_000.0
+            initial_c = self.adapter.ledger.initial_cash if (self.adapter and self.adapter.ledger) else 1_000_000.0
+            avail_cash = initial_c
+            port_val = initial_c
             dd = 0.0
             current_pos = 0.0
             if self.adapter and self.adapter.ledger:
@@ -236,6 +238,7 @@ class ManthanTradingBot:
                     current_portfolio_value=port_val,
                     current_position_quantity=current_pos,
                     current_market_price=effective_market_price,
+                    ticker=ticker,
                 )
                 if risk_eval.is_approved:
                     authorized_by_risk = True
@@ -413,9 +416,9 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
         )
 
         bot = ManthanTradingBot(
-            gateway="http://192.168.65.157:3002",
-            broker="192.168.65.157:9094",
-            username="mn2651",
+            gateway="http://127.0.0.1:3002",
+            broker="127.0.0.1:9094",
+            username="mock_user",
             token="mock_token",
             fast_window=5,
             slow_window=20,

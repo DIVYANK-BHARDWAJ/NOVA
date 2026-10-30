@@ -52,6 +52,13 @@ class DecisionEngineConfig:
     predictor_weight: float = 0.0             # Weight of ML return prediction in [0.0, 1.0]
     min_prediction_confidence: float = 0.5    # Minimum confidence required to incorporate ML prediction
     allow_short: bool = False                # False by default for compatibility, True for MANTHAN
+    enable_asymmetric_short: bool = True     # Enable conditional shorting under strict defensive rules
+    enable_contradiction_veto: bool = True   # Veto entry when trend and mean-reversion strongly disagree
+    contradiction_threshold: float = 0.35    # Conviction magnitude threshold to trigger contradiction veto
+    enable_trend_filter: bool = True         # Never buy when Close < EMA50 (kills falling knife)
+    trend_filter_ema_period: int = 50        # Period for EMA trend filter
+    market_breadth_buy_threshold: float = 0.40   # Min market breadth to allow BUY
+    market_breadth_short_threshold: float = 0.30 # Max market breadth to allow SHORT
     rebalance_band_fraction: float = 0.015    # 1.5% deadband to reject repeated churn orders
     stop_loss_pct: float = 0.04              # 4% stop-loss threshold
     max_short_holding_days: int = 10         # 10 trading days short auto-settlement
@@ -59,7 +66,7 @@ class DecisionEngineConfig:
     enable_profit_realization: bool = False   # Enable profit-taking, trailing stop, giveback protection
     profit_realization_config: ProfitRealizationConfig = field(default_factory=ProfitRealizationConfig)
     engine_id: str = "sentinel_decision_engine"
-    engine_version: str = "1.3.0"
+    engine_version: str = "1.4.0"
 
     def __post_init__(self) -> None:
         validate_finite(self.trend_weight, "trend_weight")
@@ -131,6 +138,7 @@ class SentinelDecisionEngine:
         as_of_time: datetime | None = None,
         position_state: PositionState | None = None,
         portfolio_state: PortfolioState | None = None,
+        market_breadth: float | None = None,
     ) -> TradeDecision:
         """Evaluate market state causally and produce an authoritative TradeDecision."""
         if not bars:
@@ -211,11 +219,13 @@ class SentinelDecisionEngine:
         norm_w_trend = self.config.trend_weight / tot_weight
         norm_w_mr = self.config.mean_reversion_weight / tot_weight
         regime_high_vol = False
+        regime_type_str: str | None = None
 
         if self.config.use_regime_weighting and self.regime_detector is not None:
             try:
                 regime_out = self.regime_detector.detect_regime(bars)
-                reasons.append(f"REGIME:{regime_out.regime_type.value}_ER_{regime_out.efficiency_ratio:.3f}_TREND_SHARE_{regime_out.trend_share:.3f}")
+                regime_type_str = regime_out.regime_type.value
+                reasons.append(f"REGIME:{regime_type_str}_ER_{regime_out.efficiency_ratio:.3f}_TREND_SHARE_{regime_out.trend_share:.3f}")
                 if regime_out.regime_type != MarketRegimeType.UNKNOWN:
                     norm_w_trend = regime_out.trend_share
                     norm_w_mr = 1.0 - regime_out.trend_share
@@ -458,6 +468,24 @@ class SentinelDecisionEngine:
                 candidate_exposure = 0.0
                 reasons.append("NO_SUFFICIENT_NET_EDGE_NO_TRADE")
 
+        # 5b. Falling Knife Trend Filter (Culprit 1: Never buy falling knives below EMA50)
+        if self.config.enable_trend_filter and candidate_action == ActionType.BUY:
+            if len(bars) >= self.config.trend_filter_ema_period:
+                from nova.features.moving_averages import calculate_ema_series
+                closes = [b.close for b in bars]
+                ema_series = calculate_ema_series(closes, self.config.trend_filter_ema_period)
+                ema_val = ema_series[-1]
+                if latest_bar.close < ema_val:
+                    reasons.append(
+                        f"FALLING_KNIFE_VETO_CLOSE_{latest_bar.close:.2f}_BELOW_EMA{self.config.trend_filter_ema_period}_{ema_val:.2f}"
+                    )
+                    if is_flat:
+                        candidate_action = ActionType.NO_TRADE
+                        candidate_exposure = 0.0
+                    elif is_long:
+                        candidate_action = ActionType.HOLD
+                        candidate_exposure = current_position_exposure
+
         # 6. Deterministic Risk Gate Evaluation (with Execution Safety)
         has_pending_exit = portfolio_state.has_pending_exit_order(ticker) if portfolio_state is not None else False
         has_pending_entry = portfolio_state.has_pending_entry_order(ticker) if portfolio_state is not None else False
@@ -480,6 +508,9 @@ class SentinelDecisionEngine:
             has_pending_exit_order=has_pending_exit,
             has_pending_entry_order=has_pending_entry,
             pending_exit_quantity=pending_exit_qty,
+            ticker=ticker,
+            market_breadth=market_breadth,
+            market_regime=regime_type_str,
         )
 
         for r_code in risk_result.risk_reason_codes:
