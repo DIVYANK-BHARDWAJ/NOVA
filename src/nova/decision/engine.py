@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import math
 import uuid
-from typing import TYPE_CHECKING, Sequence
+from typing import Any, TYPE_CHECKING, Sequence
 
 from nova.decision.contracts import (
     ActionType,
@@ -270,26 +270,47 @@ class SentinelDecisionEngine:
         unc_mult = self.config.uncertainty_multiplier * (1.5 if regime_high_vol else 1.0)
         uncertainty_penalty = unc_mult * vol_est
 
-        # 4. Market Friction & Break-Even Calculation
+        # 4. Market Friction & Side-Aware Economics Calculation
         all_in_cost = self.friction_engine.calculate_all_in_cost(is_roundtrip=True)
-        prob_clearing = self.friction_engine.estimate_probability_of_clearing_costs(
-            expected_gross_return=expected_gross,
+        min_net_edge = self.config.min_net_edge_bps / 10000.0
+
+        # Long-side return economics
+        long_expected_gross = expected_gross
+        long_expected_net = long_expected_gross - all_in_cost
+        long_expected_utility = long_expected_net - uncertainty_penalty
+        long_prob_clearing = self.friction_engine.estimate_probability_of_clearing_costs(
+            expected_gross_return=long_expected_gross,
             all_in_cost=all_in_cost,
             volatility=vol_est,
         )
-        expected_net = expected_gross - all_in_cost
-        expected_utility = expected_net - uncertainty_penalty
-        min_net_edge = self.config.min_net_edge_bps / 10000.0
 
-        # Break-Even Price Calculation
+        # Short-side return economics (short positions profit from underlying decline)
+        short_expected_gross = -expected_gross
+        short_expected_net = short_expected_gross - all_in_cost
+        short_expected_utility = short_expected_net - uncertainty_penalty
+        short_prob_clearing = self.friction_engine.estimate_probability_of_clearing_costs(
+            expected_gross_return=short_expected_gross,
+            all_in_cost=all_in_cost,
+            volatility=vol_est,
+        )
+
+        # Break-Even Price Calculation (side-aware)
+        is_short_direction = (current_position_exposure < -1e-4) or (
+            abs(current_position_exposure) <= 1e-4 and combined_score < -0.15
+        )
         be_price = self.friction_engine.calculate_break_even_price(
             entry_price=latest_bar.close,
             quantity=max(1.0, abs(current_quantity)),
-            is_short=(current_position_exposure < -1e-4),
+            is_short=is_short_direction,
         )
         reasons.append(f"BREAK_EVEN_PRICE_{be_price:.2f}")
         reasons.append(f"COMBINED_SCORE_{combined_score:.3f}")
-        reasons.append(f"EXPECTED_GROSS_{expected_gross:.5f}_COST_{all_in_cost:.5f}_NET_{expected_net:.5f}_UTILITY_{expected_utility:.5f}")
+        reasons.append(
+            f"LONG_ECONOMICS:GROSS_{long_expected_gross:.5f}_NET_{long_expected_net:.5f}_UTILITY_{long_expected_utility:.5f}"
+        )
+        reasons.append(
+            f"SHORT_ECONOMICS:GROSS_{short_expected_gross:.5f}_NET_{short_expected_net:.5f}_UTILITY_{short_expected_utility:.5f}"
+        )
 
         # 5. Position-Aware Action Selection Logic (MANTHAN 2026 Rules)
         candidate_action: ActionType
@@ -311,11 +332,12 @@ class SentinelDecisionEngine:
         )
 
         if (is_long or is_short) and self.config.enable_profit_realization:
+            active_utility = short_expected_utility if is_short else long_expected_utility
             exit_rec = self.profit_realization_manager.evaluate_position_exit(
                 position=active_pos,
                 current_bar=latest_bar,
                 combined_score=combined_score,
-                expected_utility=expected_utility,
+                expected_utility=active_utility,
                 min_net_edge=min_net_edge,
                 current_exposure=current_position_exposure,
             )
@@ -326,7 +348,7 @@ class SentinelDecisionEngine:
                 candidate_action = exit_rec.recommended_action
                 candidate_exposure = exit_rec.target_exposure
             elif is_long:
-                if combined_score > 0.15 and expected_utility >= min_net_edge:
+                if combined_score > 0.15 and long_expected_utility >= min_net_edge:
                     target_exp = self.config.target_exposure
                     if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
                         candidate_action = ActionType.HOLD
@@ -341,12 +363,17 @@ class SentinelDecisionEngine:
                     candidate_exposure = current_position_exposure
                     reasons.append("NEUTRAL_SIGNAL_HOLD_LONG")
             else:  # is_short
-                if combined_score < -0.15:
+                if combined_score < -0.15 and short_expected_utility >= min_net_edge:
                     target_exp = -self.config.target_exposure
                     if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
                         candidate_action = ActionType.HOLD
                         candidate_exposure = current_position_exposure
                         reasons.append("POSITION_WITHIN_REBALANCE_BAND_HOLD")
+                    elif target_exp > current_position_exposure:
+                        # Target is less negative than current: reducing short exposure requires COVER
+                        candidate_action = ActionType.COVER
+                        candidate_exposure = target_exp
+                        reasons.append("REDUCE_SHORT_POSITION_COVER")
                     else:
                         candidate_action = ActionType.SHORT
                         candidate_exposure = target_exp
@@ -362,7 +389,7 @@ class SentinelDecisionEngine:
                 candidate_action = ActionType.SELL
                 candidate_exposure = 0.0
                 reasons.append("STOP_LOSS_LONG_TRIGGERED_SELL")
-            elif combined_score > 0.15 and expected_utility >= min_net_edge:
+            elif combined_score > 0.15 and long_expected_utility >= min_net_edge:
                 target_exp = self.config.target_exposure
                 if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
                     candidate_action = ActionType.HOLD
@@ -391,12 +418,16 @@ class SentinelDecisionEngine:
                 candidate_action = ActionType.COVER
                 candidate_exposure = 0.0
                 reasons.append("STOP_LOSS_SHORT_TRIGGERED_COVER")
-            elif combined_score < -0.15:
+            elif combined_score < -0.15 and short_expected_utility >= min_net_edge:
                 target_exp = -self.config.target_exposure
                 if abs(target_exp - current_position_exposure) < self.config.rebalance_band_fraction:
                     candidate_action = ActionType.HOLD
                     candidate_exposure = current_position_exposure
                     reasons.append("POSITION_WITHIN_REBALANCE_BAND_HOLD")
+                elif target_exp > current_position_exposure:
+                    candidate_action = ActionType.COVER
+                    candidate_exposure = target_exp
+                    reasons.append("REDUCE_SHORT_POSITION_COVER")
                 else:
                     candidate_action = ActionType.SHORT
                     candidate_exposure = target_exp
@@ -412,42 +443,26 @@ class SentinelDecisionEngine:
 
         else:
             # Currently flat portfolio
-            can_short = (
-                self.config.allow_short
-                or self.risk_gate.config.allow_short
-                or self.config.enable_asymmetric_short
-                or self.risk_gate.config.enable_asymmetric_short
-            )
-
-            # Check Ambiguity Scenario 1: Contradiction Veto
-            is_contradiction = False
-            if self.config.enable_contradiction_veto:
-                if (trend_sig.raw_score * mr_sig.raw_score < 0) and (
-                    min(abs(trend_sig.raw_score), abs(mr_sig.raw_score)) >= self.config.contradiction_threshold
-                ):
-                    is_contradiction = True
-                    reasons.append(
-                        f"AMBIGUOUS_SIGNAL_CONTRADICTION_VETO_TREND_{trend_sig.raw_score:.2f}_MR_{mr_sig.raw_score:.2f}"
-                    )
-
-            if is_contradiction:
-                candidate_action = ActionType.NO_TRADE
-                candidate_exposure = 0.0
-            elif combined_score > 0.15 and expected_utility >= min_net_edge:
+            if combined_score > 0.15 and long_expected_utility >= min_net_edge:
                 candidate_action = ActionType.BUY
                 candidate_exposure = self.config.target_exposure
                 reasons.append("SIGNAL_BULLISH_NET_EDGE_EXCEEDS_FRICTION_BUY")
             elif combined_score < -0.15:
-                if can_short and expected_net < -min_net_edge:
+                can_short = self.config.allow_short or self.risk_gate.config.allow_short
+                if can_short and short_expected_utility >= min_net_edge:
                     candidate_action = ActionType.SHORT
                     candidate_exposure = -self.config.target_exposure
                     reasons.append("SIGNAL_BEARISH_NET_EDGE_EXCEEDS_FRICTION_SHORT")
+                elif can_short:
+                    candidate_action = ActionType.NO_TRADE
+                    candidate_exposure = 0.0
+                    reasons.append("BEARISH_EDGE_ERODED_BY_FRICTION_ABSTAIN_NO_TRADE")
                 else:
                     candidate_action = ActionType.NO_TRADE
                     candidate_exposure = 0.0
-                    reasons.append("SIGNAL_BEARISH_FLAT_PORTFOLIO_NO_TRADE")
+                    reasons.append("SIGNAL_BEARISH_SHORTING_PROHIBITED_NO_TRADE")
             else:
-                if expected_net < min_net_edge and combined_score > 0.15:
+                if long_expected_utility < min_net_edge and combined_score > 0.15:
                     reasons.append("POSITIVE_GROSS_EDGE_ERODED_BY_FRICTION_ABSTAIN")
                 candidate_action = ActionType.NO_TRADE
                 candidate_exposure = 0.0
@@ -526,6 +541,13 @@ class SentinelDecisionEngine:
             p_ver = getattr(p_cfg, "model_version", "1.0.0") if p_cfg else getattr(self.predictor, "model_version", "1.0.0")
             model_versions_list.append(("ml_predictor", p_ver))
 
+        is_short_selected = final_action in (ActionType.SHORT, ActionType.COVER) or (
+            final_action == ActionType.HOLD and is_short
+        )
+        rep_gross = short_expected_gross if is_short_selected else long_expected_gross
+        rep_net = short_expected_net if is_short_selected else long_expected_net
+        rep_prob = short_prob_clearing if is_short_selected else long_prob_clearing
+
         return TradeDecision(
             decision_id=f"dec_{uuid.uuid4().hex[:12]}",
             decision_timestamp=as_of,
@@ -536,10 +558,10 @@ class SentinelDecisionEngine:
             selected_strategy="ensemble_trend_and_mean_reversion",
             selection_or_rejection_reasons=tuple(reasons),
             configuration_version=self.config.engine_version,
-            expected_gross_return=expected_gross,
+            expected_gross_return=rep_gross,
             estimated_all_in_cost=all_in_cost,
-            expected_net_return=expected_net,
-            probability_of_clearing_costs=prob_clearing,
+            expected_net_return=rep_net,
+            probability_of_clearing_costs=rep_prob,
             uncertainty_estimate=uncertainty_penalty,
             estimated_risk_contribution=abs(final_exposure) * vol_est,
             model_versions=tuple(model_versions_list),

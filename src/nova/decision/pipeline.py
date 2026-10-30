@@ -99,25 +99,14 @@ class IntegratedTradingPipeline:
         """Process candidate signal from Person 2 strategy through Person 3 Risk Gate into ExecutionAdapter."""
         self.signals_processed += 1
 
-        # 1. Map Candidate Direction to Proposed Action
-        if candidate.direction == SignalDirection.BULLISH:
-            proposed_action = ActionType.BUY
-            proposed_exposure = self.default_target_exposure
-        elif candidate.direction == SignalDirection.BEARISH:
-            proposed_action = ActionType.SELL
-            proposed_exposure = 0.0
-        else:
-            logger.debug("[PIPELINE:NEUTRAL] Candidate signal for %s is NEUTRAL. Abstaining.", bar.ticker)
-            return None
-
-        # 2. Extract Portfolio State from AccountLedger
+        # 1. Extract Portfolio State from AccountLedger
         avail_cash = 1_000_000.0
         portfolio_val = 1_000_000.0
         current_dd = 0.0
         current_pos_shares = 0
 
         if self.ledger is not None:
-            avail_cash = self.ledger.get_cash()
+            avail_cash = getattr(self.ledger, "available_cash", self.ledger.get_cash())
             current_pos_shares = self.ledger.get_position(bar.ticker)
             portfolio_val = (
                 self.ledger.get_portfolio_value({bar.ticker: bar.close})
@@ -130,9 +119,40 @@ class IntegratedTradingPipeline:
                 else 0.0
             )
 
-        # For SELL, ensure we only sell if we actually hold shares
+        # 2. Map Candidate Direction to Proposed Action with Signed Position Awareness
+        if candidate.direction == SignalDirection.BULLISH:
+            if current_pos_shares < 0:
+                proposed_action = ActionType.COVER
+                proposed_exposure = 0.0
+            else:
+                proposed_action = ActionType.BUY
+                proposed_exposure = self.default_target_exposure
+        elif candidate.direction == SignalDirection.BEARISH:
+            if current_pos_shares > 0:
+                proposed_action = ActionType.SELL
+                proposed_exposure = 0.0
+            elif current_pos_shares < 0:
+                proposed_action = ActionType.SHORT
+                proposed_exposure = -self.default_target_exposure
+            else:
+                if self.risk_gate.config.allow_short:
+                    proposed_action = ActionType.SHORT
+                    proposed_exposure = -self.default_target_exposure
+                else:
+                    logger.debug("[PIPELINE:BEARISH_NO_SHORT] Shorting disabled and portfolio flat. Abstaining.")
+                    return None
+        else:
+            logger.debug("[PIPELINE:NEUTRAL] Candidate signal for %s is NEUTRAL. Abstaining.", bar.ticker)
+            return None
+
+        # For SELL, ensure we only sell if we actually hold positive shares
         if proposed_action == ActionType.SELL and current_pos_shares <= 0:
-            logger.debug("[PIPELINE:SELL_FLAT] Sell signal for %s, but position is 0. Abstaining.", bar.ticker)
+            logger.debug("[PIPELINE:SELL_FLAT] Sell signal for %s, but position is <= 0. Abstaining.", bar.ticker)
+            return None
+
+        # For COVER, ensure we only cover if we actually hold short shares
+        if proposed_action == ActionType.COVER and current_pos_shares >= 0:
+            logger.debug("[PIPELINE:COVER_FLAT] Cover signal for %s, but short position is 0. Abstaining.", bar.ticker)
             return None
 
         # For BUY, if current position is already at or above target exposure or max limit, HOLD
@@ -316,7 +336,7 @@ class IntegratedTradingPipeline:
             pos_exposure = 0.0
 
             if self.ledger is not None:
-                avail_cash = self.ledger.get_cash()
+                avail_cash = getattr(self.ledger, "available_cash", self.ledger.get_cash())
                 port_val = (
                     self.ledger.get_portfolio_value({ticker: bar.close})
                     if hasattr(self.ledger, "get_portfolio_value")

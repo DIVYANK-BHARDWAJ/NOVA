@@ -34,6 +34,7 @@ class RiskConfiguration:
     max_short_holding_days: int = 10         # MANTHAN 10-day bi-weekly short closure rule
     target_diversification_stocks: int = 6   # Target 4-8 stocks diversification
     initial_capital: float = 1000000.0       # MANTHAN ₹10,00,000 initial capital
+    order_brokerage: float = 20.0            # Flat brokerage per executed order (₹20 per competition rules)
     allow_short: bool = False                # False by default for safety/back-compat, True for MANTHAN
     enable_asymmetric_short: bool = True     # When True, enables conditional shorting in verified BEAR regimes
     short_max_holding_days: int = 4          # Max days to hold short under asymmetric protocol (auto-exit before 10-day exchange rule)
@@ -66,9 +67,12 @@ class RiskConfiguration:
             ("sniper_drawdown_threshold", self.sniper_drawdown_threshold),
             ("max_staleness_seconds", self.max_staleness_seconds),
             ("initial_capital", self.initial_capital),
+            ("order_brokerage", self.order_brokerage),
         ]:
             validate_finite(val, name)
-            if val <= 0.0 and name != "max_staleness_seconds":
+            if val < 0.0:
+                raise NumericalValidationError(f"Risk configuration '{name}' cannot be negative, got {val}")
+            if val == 0.0 and name not in ("max_staleness_seconds", "order_brokerage"):
                 raise NumericalValidationError(f"Risk configuration '{name}' must be positive, got {val}")
 
         if not (0.0 < self.max_position_exposure <= 1.0):
@@ -168,62 +172,20 @@ class DeterministicRiskGate:
 
         reasons: list[str] = []
 
-        # 0a. Anti-Churn Post-Stop Quarantine Check
-        t_sym = ticker.upper() if ticker else ""
-        if t_sym and proposed_action in (ActionType.BUY, ActionType.SHORT):
-            if self.is_ticker_in_cooldown(t_sym, bar_timestamp):
-                reasons.append(f"REJECT_TICKER_IN_POST_STOP_QUARANTINE_{t_sym}")
-                return RiskGateResult(
-                    is_approved=False,
-                    authorized_action=ActionType.NO_TRADE,
-                    authorized_exposure=0.0,
-                    risk_reason_codes=tuple(reasons),
-                )
-
-        # 0b. Market Breadth Gatekeeper Check (Macro Market Health)
-        if market_breadth is not None:
-            if proposed_action == ActionType.BUY and market_breadth < self.config.market_breadth_buy_threshold:
-                reasons.append(
-                    f"REJECT_MARKET_BREADTH_INSUFFICIENT_{market_breadth:.2f}_BELOW_{self.config.market_breadth_buy_threshold:.2f}"
-                )
-                return RiskGateResult(
-                    is_approved=False,
-                    authorized_action=ActionType.NO_TRADE,
-                    authorized_exposure=0.0,
-                    risk_reason_codes=tuple(reasons),
-                )
-            elif proposed_action == ActionType.SHORT and market_breadth > self.config.market_breadth_short_threshold:
-                reasons.append(
-                    f"REJECT_MARKET_BREADTH_TOO_HIGH_FOR_SHORT_{market_breadth:.2f}_ABOVE_{self.config.market_breadth_short_threshold:.2f}"
-                )
-                return RiskGateResult(
-                    is_approved=False,
-                    authorized_action=ActionType.NO_TRADE,
-                    authorized_exposure=0.0,
-                    risk_reason_codes=tuple(reasons),
-                )
-
-        # 0c. Short Authorization Check (including Asymmetric Short Protocol)
-        is_short_action = (proposed_action == ActionType.SHORT or proposed_exposure < -1e-6)
-        if is_short_action:
-            can_short = self.config.allow_short or self.config.enable_asymmetric_short
-            if not can_short:
-                reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
-                return RiskGateResult(
-                    is_approved=False,
-                    authorized_action=ActionType.NO_TRADE,
-                    authorized_exposure=0.0,
-                    risk_reason_codes=tuple(reasons),
-                )
-            if self.config.enable_asymmetric_short and not self.config.allow_short:
-                if market_regime is None or "BEAR" not in str(market_regime).upper():
-                    reasons.append(f"REJECT_SHORT_DEFENSIVE_CONDITIONS_NOT_MET_SHORT_POSITIONS_PROHIBITED_REJECT_ASYMMETRIC_SHORT_REQUIRES_BEAR_REGIME_GOT_{market_regime}")
-                    return RiskGateResult(
-                        is_approved=False,
-                        authorized_action=ActionType.NO_TRADE,
-                        authorized_exposure=0.0,
-                        risk_reason_codes=tuple(reasons),
-                    )
+        # 0. Short Prohibition Check: new SHORT action or negative target exposure
+        # Exception: risk-reducing exits (COVER, EXIT, REDUCE) are never blocked by allow_short=False
+        is_short_intent = (
+            (proposed_action == ActionType.SHORT or proposed_exposure < -1e-6)
+            and proposed_action not in (ActionType.COVER, ActionType.EXIT, ActionType.REDUCE)
+        )
+        if is_short_intent and not self.config.allow_short:
+            reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.NO_TRADE,
+                authorized_exposure=0.0,
+                risk_reason_codes=tuple(reasons),
+            )
 
         # 0d. Execution Safety Checks: Pending Orders, Overselling & Nonexistent Covers
         is_exit_action = proposed_action in (ActionType.SELL, ActionType.COVER, ActionType.EXIT, ActionType.REDUCE)
@@ -390,29 +352,7 @@ class DeterministicRiskGate:
                         risk_reason_codes=tuple(reasons),
                     )
 
-        # 6. Secondary Short Prohibition Sanity Check
-        if is_short_action and not (self.config.allow_short or self.config.enable_asymmetric_short):
-            reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
-            return RiskGateResult(
-                is_approved=False,
-                authorized_action=ActionType.NO_TRADE,
-                authorized_exposure=0.0,
-                risk_reason_codes=tuple(reasons),
-            )
-
-        # 7. Margin Constraint Check for SHORT
-        if proposed_action == ActionType.SHORT:
-            margin_required = abs(proposed_exposure) * current_portfolio_value
-            if available_cash < margin_required:
-                reasons.append(f"INSUFFICIENT_MARGIN_CASH_{available_cash:.2f}_REQUIRED_{margin_required:.2f}")
-                return RiskGateResult(
-                    is_approved=False,
-                    authorized_action=ActionType.NO_TRADE,
-                    authorized_exposure=0.0,
-                    risk_reason_codes=tuple(reasons),
-                )
-
-        # 8. Position Exposure Cap Clamping & Tiered Drawdown Scaling
+        # 6. Position Exposure Cap Clamping
         capped_exposure = proposed_exposure
         if abs(proposed_exposure) > self.config.max_position_exposure:
             sign = 1.0 if proposed_exposure > 0 else -1.0
@@ -421,17 +361,50 @@ class DeterministicRiskGate:
                 f"EXPOSURE_CLAMPED_FROM_{proposed_exposure:.2f}_TO_MAX_{capped_exposure:.2f}"
             )
 
-        # Apply Asymmetric Short scaling (50% size for shorts)
-        if proposed_action == ActionType.SHORT and self.config.enable_asymmetric_short:
-            capped_exposure = capped_exposure * self.config.short_exposure_scale
-            reasons.append(f"ASYMMETRIC_SHORT_SCALED_BY_{self.config.short_exposure_scale:.2f}")
+        # 7. Short Prohibition Check
+        if proposed_action == ActionType.SHORT and not self.config.allow_short:
+            reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
+            return RiskGateResult(
+                is_approved=False,
+                authorized_action=ActionType.NO_TRADE,
+                authorized_exposure=0.0,
+                risk_reason_codes=tuple(reasons),
+            )
 
-        # Apply Resuscitation Ladder scaling to exposure
-        if drawdown_exposure_multiplier < 1.0:
-            capped_exposure = capped_exposure * drawdown_exposure_multiplier
-            reasons.append(f"RESUSCITATION_LADDER_SCALED_BY_{drawdown_exposure_multiplier:.2f}")
+        # 8. MANTHAN Rule: 100% Margin + Brokerage Check for SHORT
+        if proposed_action == ActionType.SHORT:
+            margin_required = abs(capped_exposure) * current_portfolio_value
+            # In normalized fractional mode (portfolio <= 1.0), scale order brokerage by initial capital
+            effective_brokerage = (
+                (self.config.order_brokerage / max(1.0, self.config.initial_capital))
+                if current_portfolio_value <= 1.0
+                else self.config.order_brokerage
+            )
+            total_required_capital = margin_required + effective_brokerage
+            if available_cash < total_required_capital:
+                reasons.append(
+                    f"INSUFFICIENT_MARGIN_CASH_{available_cash:.2f}_REQUIRED_{total_required_capital:.2f}"
+                )
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+            remaining_cash = available_cash - total_required_capital
+            min_buffer = self.config.min_cash_buffer_fraction * current_portfolio_value
+            if remaining_cash < min_buffer:
+                reasons.append(
+                    f"INSUFFICIENT_CASH_BUFFER_AFTER_SHORT_{remaining_cash:.2f}_BELOW_{min_buffer:.2f}"
+                )
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
 
-        # 9. Cash Buffer & Reserve Check
+        # 9. Cash Buffer & Reserve Check for BUY
         cash_fraction = available_cash / max(1e-6, current_portfolio_value)
         if proposed_action == ActionType.BUY and cash_fraction < self.config.min_cash_buffer_fraction:
             reasons.append(f"INSUFFICIENT_CASH_BUFFER_{cash_fraction:.4f}_BELOW_{self.config.min_cash_buffer_fraction:.4f}")

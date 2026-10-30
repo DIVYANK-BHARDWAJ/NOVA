@@ -75,6 +75,8 @@ class PositionLedgerEntry:
     realized_pnl: float = 0.0
     total_fees: float = 0.0
     last_update_time: Optional[datetime] = None
+    locked_margin: float = 0.0
+    holding_days: int = 0
 
     @property
     def avg_price(self) -> float:
@@ -130,7 +132,13 @@ def reconcile_positions(
     """
     remote_dict: dict[str, int] = {}
     for h in remote_portfolio.holdings:
-        remote_dict[h.ticker.upper()] = h.quantity
+        side = getattr(h, "side", None)
+        if side is None and hasattr(h, "raw_response") and isinstance(h.raw_response, dict):
+            side = h.raw_response.get("side") or h.raw_response.get("position_type")
+        qty = h.quantity
+        if side and str(side).upper() in ("SHORT", "SELL") and qty > 0:
+            qty = -qty
+        remote_dict[h.ticker.upper()] = qty
 
     local_dict: dict[str, int] = {k.upper(): v for k, v in local_positions.items()}
 
@@ -255,6 +263,18 @@ class AccountLedger:
         with self._lock:
             return self.cash
 
+    @property
+    def total_locked_margin(self) -> float:
+        """Total locked margin collateral across all active short positions."""
+        with self._lock:
+            return sum(pos.locked_margin for pos in self.positions.values() if pos.quantity < 0)
+
+    @property
+    def available_cash(self) -> float:
+        """Spendable available cash after deducting locked short margin collateral."""
+        with self._lock:
+            return max(0.0, self.cash - sum(pos.locked_margin for pos in self.positions.values() if pos.quantity < 0))
+
     def get_portfolio_value(self, current_prices: Optional[dict[str, float]] = None) -> float:
         """Calculate total portfolio value based on cash and position market values."""
         with self._lock:
@@ -292,8 +312,9 @@ class AccountLedger:
         with self._lock:
             val = self.get_portfolio_value(current_prices)
             dd = self.get_drawdown(current_prices)
+            avail_c = max(0.0, self.cash - sum(pos.locked_margin for pos in self.positions.values() if pos.quantity < 0))
             return PortfolioSummary(
-                available_cash=self.cash,
+                available_cash=avail_c,
                 total_portfolio_value=val,
                 drawdown_fraction=dd,
                 positions_count=len(self.get_positions()),
@@ -315,31 +336,37 @@ class AccountLedger:
 
             prices = current_prices or {}
             pos_states: dict[str, PositionState] = {}
+            total_locked = 0.0
 
             for ticker, entry in self.positions.items():
                 if entry.quantity == 0:
                     continue
                 px = prices.get(ticker.upper(), entry.avg_price)
-                unrealized = (
-                    (px - entry.avg_price) * entry.quantity
-                    if entry.quantity > 0
-                    else (entry.avg_price - px) * abs(entry.quantity)
-                )
+                if entry.quantity > 0:
+                    unrealized = (px - entry.avg_price) * entry.quantity
+                    pos_locked = 0.0
+                else:
+                    unrealized = (entry.avg_price - px) * abs(entry.quantity)
+                    pos_locked = max(0.0, entry.locked_margin)
+                    total_locked += pos_locked
+
                 pos_states[ticker.upper()] = PositionState(
                     ticker=ticker.upper(),
                     quantity=float(entry.quantity),
                     entry_price=entry.avg_price,
                     current_market_price=px,
+                    holding_days=entry.holding_days,
                     unrealized_pnl=unrealized,
                     realized_pnl=entry.realized_pnl,
+                    locked_margin=pos_locked,
                     highest_price=px,
                     lowest_price=px,
                     peak_unrealized_pnl=max(0.0, unrealized),
                 )
 
             return PortfolioState(
-                available_cash=self.cash,
-                locked_margin=0.0,
+                available_cash=max(0.0, self.cash - total_locked),
+                locked_margin=total_locked,
                 positions=pos_states,
                 initial_capital=self.initial_cash,
                 peak_wealth=self._peak_portfolio_value,
@@ -434,20 +461,41 @@ class AccountLedger:
                     pos.total_cost = max(0.0, pos.quantity * entry_avg)
 
                 elif result.action == OrderAction.SHORT:
-                    proceeds = delta_qty * price
-                    self.cash += (proceeds - charges)
+                    trade_val = delta_qty * price
+                    self.cash += (trade_val - charges)
+                    pos.locked_margin += trade_val
                     pos.quantity -= delta_qty
-                    pos.total_cost += (delta_qty * price)
+                    pos.total_cost += trade_val
 
                 elif result.action == OrderAction.COVER:
-                    cost = delta_qty * price
-                    self.cash -= (cost + charges)
+                    trade_val = delta_qty * price
+                    self.cash -= (trade_val + charges)
+                    prior_short = abs(pos.quantity) if pos.quantity < 0 else 0
                     entry_avg = pos.avg_price
                     realized = (entry_avg - price) * delta_qty - charges
                     pos.realized_pnl += realized
                     self.total_realized_pnl += realized
-                    pos.quantity += delta_qty
-                    pos.total_cost = max(0.0, abs(pos.quantity) * entry_avg)
+
+                    # Proportional or complete margin release
+                    if prior_short > 0:
+                        if delta_qty >= prior_short:
+                            # Full cover: release all remaining locked margin
+                            pos.locked_margin = 0.0
+                            pos.quantity = 0
+                            pos.total_cost = 0.0
+                        else:
+                            # Partial cover: release margin proportionally
+                            release_ratio = delta_qty / prior_short
+                            margin_released = pos.locked_margin * release_ratio
+                            pos.locked_margin = max(0.0, pos.locked_margin - margin_released)
+                            pos.quantity += delta_qty
+                            pos.total_cost = max(0.0, abs(pos.quantity) * entry_avg)
+                    else:
+                        pos.quantity = 0
+                        pos.locked_margin = 0.0
+                        pos.total_cost = 0.0
+
+                    pos.last_update_time = result.timestamp
 
                 pos.total_fees += charges
                 pos.last_update_time = result.timestamp
