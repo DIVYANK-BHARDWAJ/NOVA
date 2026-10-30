@@ -72,6 +72,24 @@ class IntegratedTradingPipeline:
         self.full_action_latencies_ms: list[float] = []
         self.deadline_misses: int = 0
 
+    def calculate_market_breadth(self, ema_period: int = 20) -> float:
+        """Calculate market breadth (% of active tickers closing above their EMA20)."""
+        if not self._symbol_history:
+            return 0.50
+        from nova.features.moving_averages import calculate_ema_series
+        above_count = 0
+        total_valid = 0
+        for sym_bars in self._symbol_history.values():
+            if len(sym_bars) >= ema_period:
+                closes = [b.close for b in sym_bars]
+                ema_val = calculate_ema_series(closes, ema_period)[-1]
+                if sym_bars[-1].close > ema_val:
+                    above_count += 1
+                total_valid += 1
+        if total_valid == 0:
+            return 0.50
+        return above_count / total_valid
+
     def process_candidate_signal(
         self,
         candidate: CandidateSignal,
@@ -138,6 +156,7 @@ class IntegratedTradingPipeline:
             else:
                 eval_as_of = datetime.now(timezone.utc)
 
+        breadth = self.calculate_market_breadth()
         risk_result: RiskGateResult = self.risk_gate.evaluate(
             proposed_action=proposed_action,
             proposed_exposure=proposed_exposure,
@@ -149,6 +168,8 @@ class IntegratedTradingPipeline:
             current_portfolio_value=portfolio_val,
             current_position_quantity=float(current_pos_shares),
             current_market_price=float(bar.close),
+            ticker=bar.ticker,
+            market_breadth=breadth,
         )
 
         if not risk_result.is_approved or risk_result.authorized_action in (ActionType.NO_TRADE, ActionType.HOLD):
@@ -326,6 +347,7 @@ class IntegratedTradingPipeline:
                     as_of_time=eval_time,
                     position_state=pos_state,
                     portfolio_state=portfolio_state,
+                    market_breadth=self.calculate_market_breadth(),
                 )
                 t_dec = time.perf_counter()
                 dec_latency_ms = (t_dec - t_start) * 1000.0

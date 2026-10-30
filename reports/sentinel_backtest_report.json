@@ -1,9 +1,9 @@
 {
   "report_type": "sentinel_trader_part7_backtest_audit",
-  "timestamp_utc": "2026-10-29T19:00:00.245973+00:00",
+  "timestamp_utc": "2026-10-30T02:58:46.449381+00:00",
   "market_scenario": {
-    "pattern": "bullish",
-    "total_bars": 80,
+    "pattern": "bearish",
+    "total_bars": 100,
     "warmup_bars": 25,
     "ticker": "SENTINEL_EVAL",
     "initial_capital_inr": 1000000.0,
@@ -11,7 +11,7 @@
   },
   "benchmark": {
     "name": "Buy and Hold Asset Benchmark",
-    "net_return": 0.24049035514692632
+    "net_return": -0.25660377358490555
   },
   "ablation_variants": [
     {
@@ -20,13 +20,13 @@
       "description": "All modules active (Trend, MR, ML, Regime, Friction, Risk, Exits)",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -35,13 +35,13 @@
       "description": "Trend weight set to 0.0",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -50,13 +50,13 @@
       "description": "Mean reversion weight set to 0.0",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -65,13 +65,13 @@
       "description": "ML return predictor disabled",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -80,13 +80,13 @@
       "description": "Efficiency ratio regime weighting disabled",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -95,13 +95,13 @@
       "description": "Min net edge hurdle set to 0 bps",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -110,13 +110,13 @@
       "description": "Max exposure relaxed to 1.0, drawdown limit 1.0",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.042875596837669144,
+      "net_pnl_inr": 42875.596837669145,
+      "max_drawdown": 0.00013833967330500077,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
+      "turnover": 5.800799763033179,
+      "fees_inr": 1757.9019869291435,
+      "trade_count": 29,
       "marginal_contribution_bps": 0.0
     },
     {
@@ -125,14 +125,14 @@
       "description": "Trailing stop & partial scale-out disabled",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.043666624311143064,
-      "net_pnl_inr": 43666.62431114307,
-      "max_drawdown": 0.0,
+      "net_return": 0.05134322930622986,
+      "net_pnl_inr": 51343.229306229856,
+      "max_drawdown": 0.00013505034683364164,
       "win_rate": 1.0,
-      "turnover": 0.2608830096248921,
-      "fees_inr": 105.93337107885435,
-      "trade_count": 3,
-      "marginal_contribution_bps": 0.0
+      "turnover": 2.60396443667104,
+      "fees_inr": 784.2475582893558,
+      "trade_count": 13,
+      "marginal_contribution_bps": -84.7
     },
     {
       "id": "baseline_buy_and_hold",
@@ -140,14 +140,14 @@
       "description": "Passive buy and hold benchmark",
       "supported": true,
       "unsupported_reason": null,
-      "net_return": 0.24049035514692632,
-      "net_pnl_inr": 240490.35514692633,
-      "max_drawdown": 0.0,
-      "win_rate": 1.0,
+      "net_return": -0.25660377358490555,
+      "net_pnl_inr": -256603.77358490555,
+      "max_drawdown": 0.00013833967330500077,
+      "win_rate": 0.0,
       "turnover": 1.0,
       "fees_inr": 60.0,
       "trade_count": 1,
-      "marginal_contribution_bps": -1968.2373083578325
+      "marginal_contribution_bps": 2994.7937042257468
     },
     {
       "id": "baseline_no_trade",
@@ -162,7 +162,7 @@
       "turnover": 0.0,
       "fees_inr": 0.0,
       "trade_count": 0,
-      "marginal_contribution_bps": 436.6662431114306
+      "marginal_contribution_bps": 428.75596837669144
     },
     {
       "id": "news_sentiment",
