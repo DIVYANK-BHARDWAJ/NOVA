@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from typing import Any, Optional
 
 from execution.client import TradingApiClient, TradingApiError
@@ -42,6 +43,9 @@ class HeartbeatWorker:
         self._lock = threading.Lock()
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self.keepalive_interval: float = 7.0
+        self._last_known_seq: str = "1"
+        self._last_ack_time: float = 0.0
 
         # Metrics
         self.enqueued_count: int = 0
@@ -171,19 +175,35 @@ class HeartbeatWorker:
     def _worker_loop(self) -> None:
         """Continuous background loop processing heartbeat acknowledgements."""
         while self._running:
+            seq: Optional[str] = None
+            is_keepalive = False
             try:
-                seq = self._queue.get(timeout=0.2)
+                seq = self._queue.get(timeout=0.5)
             except queue.Empty:
-                continue
+                pass
+
+            now = time.monotonic()
+            if seq is None:
+                if (now - self._last_ack_time) >= self.keepalive_interval:
+                    seq = self._last_known_seq
+                    is_keepalive = True
+                else:
+                    continue
+            else:
+                self._last_known_seq = seq
 
             try:
                 self.client.send_heartbeat(seq)
-                with self._lock:
-                    self._in_flight_seqs.discard(seq)
-                    self._acknowledged_seqs.add(seq)
-                    self._attempt_counts.pop(seq, None)
-                self.acknowledged_count += 1
-                logger.info("[HEARTBEAT:ACK] Successfully acknowledged heartbeat seq=%s (total acked: %d)", seq, self.acknowledged_count)
+                self._last_ack_time = time.monotonic()
+                if not is_keepalive:
+                    with self._lock:
+                        self._in_flight_seqs.discard(seq)
+                        self._acknowledged_seqs.add(seq)
+                        self._attempt_counts.pop(seq, None)
+                    self.acknowledged_count += 1
+                    logger.info("[HEARTBEAT:ACK] Successfully acknowledged heartbeat seq=%s (total acked: %d)", seq, self.acknowledged_count)
+                else:
+                    logger.debug("[HEARTBEAT:KEEPALIVE] Sent keepalive heartbeat seq=%s", seq)
             except TradingApiError as exc:
                 self.failure_count += 1
                 with self._lock:
@@ -220,4 +240,5 @@ class HeartbeatWorker:
                     exc,
                 )
             finally:
-                self._queue.task_done()
+                if not is_keepalive:
+                    self._queue.task_done()

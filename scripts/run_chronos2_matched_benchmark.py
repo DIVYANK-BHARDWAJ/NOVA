@@ -46,7 +46,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import numpy as np
-import psutil
+import psutil  # type: ignore[import-untyped]
 import torch
 
 torch.set_num_threads(4)

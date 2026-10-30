@@ -33,7 +33,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 import torch
 
 # Explicitly limit PyTorch threads
