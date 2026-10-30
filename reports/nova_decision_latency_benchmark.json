@@ -1,0 +1,39 @@
+{
+  "timestamp_utc": "2026-10-30T00:14:03.266912+00:00",
+  "total_observations": 1000,
+  "model_id": "xgboost_classifier_v3",
+  "model_backend": "NATIVE_XGBOOST",
+  "regime_detector": "TransparentRegimeDetector",
+  "decision_engine_version": "1.0.0",
+  "timing_metrics": {
+    "cold_start_latency_ms": 15.27,
+    "mean_decision_latency_ms": 24.826,
+    "min_decision_latency_ms": 0.15,
+    "p50_decision_latency_ms": 30.03,
+    "p90_decision_latency_ms": 34.01,
+    "p95_decision_latency_ms": 34.69,
+    "p99_decision_latency_ms": 49.47,
+    "max_decision_latency_ms": 73.07,
+    "mean_full_action_latency_ms": 25.421,
+    "p50_full_action_latency_ms": 30.733,
+    "p95_full_action_latency_ms": 35.976,
+    "p99_full_action_latency_ms": 50.765,
+    "max_full_action_latency_ms": 73.117
+  },
+  "deadline_audit": {
+    "hard_deadline_ms": 3000.0,
+    "deadline_misses": 0,
+    "deadline_success_rate_pct": 100.0,
+    "within_2s_target_pct": 100.0,
+    "within_2_5s_target_pct": 100.0,
+    "passed_p95_target": true,
+    "passed_p99_target": true,
+    "passed_hard_deadline": true
+  },
+  "actions_breakdown": {
+    "NO_TRADE": 776,
+    "BUY": 112,
+    "SELL": 112
+  },
+  "throughput_decisions_per_sec": 39.29
+}

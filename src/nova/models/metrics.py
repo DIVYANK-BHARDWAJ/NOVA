@@ -149,7 +149,7 @@ def accuracy_score(y_true: Sequence[int], y_pred: Sequence[int]) -> float:
     """Compute standard classification accuracy (proportion of correct labels)."""
     if len(y_true) != len(y_pred):
         raise ValueError(f"Length mismatch: len(y_true)={len(y_true)} != len(y_pred)={len(y_pred)}")
-    if not y_true:
+    if len(y_true) == 0:
         return 0.50
     return sum(1 for t, p in zip(y_true, y_pred) if t == p) / len(y_true)
 
@@ -199,7 +199,7 @@ def brier_score(y_true: Sequence[int], y_prob: Sequence[float]) -> float:
     """Compute Brier Score (Mean Squared Error of predicted probabilities)."""
     if len(y_true) != len(y_prob):
         raise ValueError(f"Length mismatch: len(y_true)={len(y_true)} != len(y_prob)={len(y_prob)}")
-    if not y_true:
+    if len(y_true) == 0:
         return 0.25
     return sum((p - float(t)) ** 2 for t, p in zip(y_true, y_prob)) / len(y_true)
 
@@ -208,7 +208,7 @@ def log_loss(y_true: Sequence[int], y_prob: Sequence[float], eps: float = 1e-15)
     """Compute Binary Cross-Entropy / Log Loss."""
     if len(y_true) != len(y_prob):
         raise ValueError(f"Length mismatch: len(y_true)={len(y_true)} != len(y_prob)={len(y_prob)}")
-    if not y_true:
+    if len(y_true) == 0:
         return 0.693147  # ln(2)
     loss = 0.0
     for t, p in zip(y_true, y_prob):
@@ -260,7 +260,7 @@ def evaluate_classification_metrics(
     dataset_split: str = "test",
 ) -> dict[str, Any]:
     """Compute comprehensive classification evaluation dictionary."""
-    if not y_true:
+    if len(y_true) == 0:
         return {
             "split": dataset_split,
             "sample_count": 0,

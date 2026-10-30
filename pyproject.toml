@@ -12,11 +12,11 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src", "kafka/src"]
+where = ["src", "kafka/src", "execution/src"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts", "kafka/src"]
-extraPaths = ["src", "kafka/src"]
+include = ["src", "tests", "scripts", "kafka/src", "execution/src"]
+extraPaths = ["src", "kafka/src", "execution/src"]
 
 [tool.pytest.ini_options]
 testpaths = ["kafka/tests", "execution/tests", "tests"]

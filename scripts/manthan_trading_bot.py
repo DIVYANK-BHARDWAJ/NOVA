@@ -370,10 +370,24 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
             ledger=mock_ledger,
         )
         mock_risk = DeterministicRiskGate(RiskConfiguration(allow_short=False))
+        mock_ml_predictor = None
+        try:
+            from nova.models.xgboost_model import XGBoostPredictionModel
+            from nova.decision.prediction import XGBoostPredictor
+            p_xgb = REPO_ROOT / "artifacts" / "models" / "xgboost_classifier_v3"
+            if p_xgb.exists():
+                m_xgb = XGBoostPredictionModel.load(p_xgb)
+                mock_ml_predictor = XGBoostPredictor(m_xgb)
+        except Exception:
+            pass
+        if mock_ml_predictor is None:
+            mock_ml_predictor = CausalRidgePredictor()
+
         mock_engine = SentinelDecisionEngine(
             config=DecisionEngineConfig(
-                trend_weight=0.50,
-                mean_reversion_weight=0.50,
+                trend_weight=0.40,
+                mean_reversion_weight=0.40,
+                predictor_weight=0.20,
                 min_net_edge_bps=1.0,
                 target_exposure=0.15,
                 allow_short=False,
@@ -384,7 +398,7 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
             mean_reversion_strategy=MeanReversionStrategy(),
             friction_engine=MarketFrictionEngine(),
             risk_gate=mock_risk,
-            predictor=CausalRidgePredictor(),
+            predictor=mock_ml_predictor,
             regime_detector=MarketRegimeDetector(),
             profit_realization_manager=ProfitRealizationManager(),
         )
@@ -623,9 +637,35 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
         risk_cfg = RiskConfiguration()
         risk_gate = DeterministicRiskGate(risk_cfg)
 
+        ml_pred = None
+        try:
+            from nova.models.xgboost_model import XGBoostPredictionModel
+            from nova.decision.prediction import XGBoostPredictor
+            p_xgb = REPO_ROOT / "artifacts" / "models" / "xgboost_classifier_v3"
+            if not p_xgb.exists():
+                p_xgb = REPO_ROOT / "artifacts" / "models" / "xgboost_native_v1"
+            if p_xgb.exists():
+                m_xgb = XGBoostPredictionModel.load(p_xgb)
+                ml_pred = XGBoostPredictor(m_xgb)
+                logger.info("[ML:INIT] Loaded Person 2 XGBoost predictor: %s (backend=%s)", p_xgb.name, m_xgb.backend_type)
+        except Exception as exc:
+            logger.warning("[ML:INIT] Fallback to CausalRidgePredictor: %s", exc)
+        if ml_pred is None:
+            ml_pred = CausalRidgePredictor()
+
+        # Select canonical regime detector
+        reg_detector = None
+        try:
+            from nova.regime.transparent_detector import TransparentRegimeDetector
+            reg_detector = TransparentRegimeDetector()
+            logger.info("[REGIME:INIT] Canonical Person 2 TransparentRegimeDetector loaded.")
+        except Exception:
+            reg_detector = MarketRegimeDetector()
+
         engine_cfg = DecisionEngineConfig(
-            trend_weight=0.50,
-            mean_reversion_weight=0.50,
+            trend_weight=0.40,
+            mean_reversion_weight=0.40,
+            predictor_weight=0.20,
             min_net_edge_bps=2.0,
             target_exposure=0.15,
             allow_short=False,
@@ -638,8 +678,8 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
             mean_reversion_strategy=MeanReversionStrategy(),
             friction_engine=MarketFrictionEngine(),
             risk_gate=risk_gate,
-            predictor=CausalRidgePredictor(),
-            regime_detector=MarketRegimeDetector(),
+            predictor=ml_pred,
+            regime_detector=reg_detector,
             profit_realization_manager=ProfitRealizationManager(),
         )
         logger.info(
@@ -667,15 +707,19 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
         dispatcher.subscribe_tick(pipeline.handle_market_tick)
         logger.info("[PIPELINE:INIT] IntegratedTradingPipeline connected to SentinelDecisionEngine and EventDispatcher.")
 
-        # Secondary research path: optional Person 2 EMA crossover candidate signal evaluation
+        # Secondary research path: purely analytical observation (zero order placement)
         strat_cfg = EMACrossoverConfig(fast_window=12, slow_window=26, allow_short=False)
         strategy = EMACrossoverStrategy(config=strat_cfg)
+
+        def _on_research_signal(cand: Any, b: Any) -> None:
+            logger.debug("[RESEARCH:EMA_SIGNAL] Analytical signal for %s: %s (non-trading observer)", b.ticker, cand.direction.value)
+
         connector = KafkaStrategyConnector(
             strategy=strategy,
-            on_candidate_signal=pipeline.process_candidate_signal,
+            on_candidate_signal=_on_research_signal,
         )
         dispatcher.subscribe_tick(connector.handle_market_tick)
-        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected as secondary analytical listener.")
+        logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected as secondary analytical listener (non-executing).")
     except Exception as exc:
         logger.warning("[PIPELINE:INIT] Pipeline initialization notice: %s", exc)
 

@@ -3,11 +3,13 @@
     "src",
     "tests",
     "scripts",
-    "kafka/src"
+    "kafka/src",
+    "execution/src"
   ],
   "extraPaths": [
     "src",
     "scripts",
-    "kafka/src"
+    "kafka/src",
+    "execution/src"
   ]
 }

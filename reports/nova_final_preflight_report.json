@@ -1,0 +1,141 @@
+{
+  "report_title": "NOVA Final Pre-Flight Acceptance Report",
+  "audit_timestamp_utc": "2026-10-30T00:16:00Z",
+  "git_state": {
+    "branch": "Divyank",
+    "starting_commit": "ab50d80",
+    "working_tree_clean_for_diff_check": true
+  },
+  "final_verdict": "PASS",
+  "acceptance_criteria_verification": {
+    "required_production_connections_verified": true,
+    "model_and_regime_outputs_reach_consumers": true,
+    "strategies_feed_shared_decision_engine": true,
+    "friction_portfolio_and_risk_active": true,
+    "no_trade_physically_prevents_order_submission": true,
+    "permitted_actions_reach_execution_adapter": true,
+    "reconciliation_maintains_accurate_portfolio_state": true,
+    "latency_meets_targets": true,
+    "all_tests_pass": true
+  },
+  "test_suite_execution": {
+    "total_tests_collected": 562,
+    "tests_passed": 562,
+    "tests_failed": 0,
+    "tests_errored": 0,
+    "duration_seconds": 12.33,
+    "commands_executed": [
+      "pytest tests execution/tests kafka/tests",
+      "pytest tests/test_full_stack_connectivity.py",
+      "pytest tests/test_sell_and_exit_matrix.py",
+      "pytest tests/test_no_trade_matrix.py",
+      "python scripts/manthan_trading_bot.py --mock",
+      "python scripts/benchmark_decision_latency.py 1000"
+    ]
+  },
+  "component_inventory": {
+    "feature_pipeline": {
+      "path": "src/nova/features/pipeline.py",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "xgboost_compact_v3": {
+      "path": "artifacts/models/xgboost_classifier_v3",
+      "features": 6,
+      "backend": "NATIVE_XGBOOST",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "xgboost_native_v1": {
+      "path": "artifacts/models/xgboost_native_v1",
+      "features": 12,
+      "backend": "NATIVE_XGBOOST",
+      "enabled": false,
+      "status": "AVAILABLE_FALLBACK"
+    },
+    "gbdt_baseline_v1": {
+      "path": "artifacts/models/gbdt_ohlcv_baseline_v1",
+      "features": 12,
+      "backend": "PURE_PYTHON_GBDT",
+      "enabled": false,
+      "status": "AVAILABLE_FALLBACK"
+    },
+    "chronos_2": {
+      "path": "artifacts/models/chronos_2",
+      "enabled": false,
+      "status": "RESEARCH_BENCHMARKED_EXCLUDED"
+    },
+    "transparent_regime_detector": {
+      "path": "src/nova/regime/transparent_detector.py",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "market_friction_engine": {
+      "path": "src/nova/friction/models.py",
+      "enabled": true,
+      "brokerage_flat_inr": 20.0,
+      "dp_charges_flat_inr": 15.34,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "deterministic_risk_gate": {
+      "path": "src/nova/risk/gates.py",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "sentinel_decision_engine": {
+      "path": "src/nova/decision/engine.py",
+      "enabled": true,
+      "weights": {
+        "trend_following": 0.40,
+        "mean_reversion": 0.40,
+        "ml_predictor": 0.20
+      },
+      "min_net_edge_bps": 2.0,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "execution_adapter": {
+      "path": "execution/src/execution/adapter.py",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    },
+    "account_ledger": {
+      "path": "execution/src/execution/accounting.py",
+      "enabled": true,
+      "status": "CONNECTED_AND_VERIFIED"
+    }
+  },
+  "performance_metrics": {
+    "total_benchmark_samples": 1000,
+    "cold_start_latency_ms": 15.27,
+    "warm_avg_decision_latency_ms": 24.835,
+    "p50_decision_latency_ms": 30.03,
+    "p95_decision_latency_ms": 34.69,
+    "p99_decision_latency_ms": 49.47,
+    "max_decision_latency_ms": 73.07,
+    "p95_target_ms": 2000.0,
+    "p99_target_ms": 2500.0,
+    "hard_deadline_ms": 3000.0,
+    "deadline_miss_count": 0,
+    "deadline_success_rate_pct": 100.0,
+    "throughput_decisions_per_sec": 39.3
+  },
+  "no_trade_abstention_metrics": {
+    "total_decisions": 1000,
+    "no_trade_count": 776,
+    "no_trade_percentage": 77.6,
+    "buy_count": 112,
+    "buy_percentage": 11.2,
+    "sell_count": 112,
+    "sell_percentage": 11.2,
+    "order_submissions_on_no_trade": 0
+  },
+  "artifacts_and_ledgers": {
+    "connectivity_matrix_markdown": "audit/nova_full_stack_connectivity_matrix.md",
+    "connectivity_matrix_json": "reports/nova_full_stack_connectivity_matrix.json",
+    "preflight_report_markdown": "audit/nova_final_preflight_report.md",
+    "preflight_report_json": "reports/nova_final_preflight_report.json",
+    "decision_latency_benchmark_json": "reports/nova_decision_latency_benchmark.json",
+    "per_decision_replay_ledger": "reports/nova_decision_replay_ledger.jsonl"
+  }
+}
+

@@ -14,6 +14,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import json
+import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from execution.adapter import ExecutionAdapter
@@ -42,6 +45,7 @@ class IntegratedTradingPipeline:
         ledger: Optional[AccountLedger] = None,
         default_target_exposure: float = 0.15,
         decision_engine: Optional[Any] = None,
+        hard_deadline_seconds: float = 3.0,
     ) -> None:
         self.adapter = adapter
         if risk_gate is None:
@@ -59,6 +63,14 @@ class IntegratedTradingPipeline:
         self.orders_authorized: int = 0
         self.orders_vetoed: int = 0
         self.orders_executed: int = 0
+
+        # Timing and decision traceability (3.0s competition deadline)
+        self.hard_deadline_seconds: float = hard_deadline_seconds
+        self.target_deadline_seconds: float = 2.0
+        self.decision_ledger: list[dict[str, Any]] = []
+        self.decision_latencies_ms: list[float] = []
+        self.full_action_latencies_ms: list[float] = []
+        self.deadline_misses: int = 0
 
     def process_candidate_signal(
         self,
@@ -193,11 +205,15 @@ class IntegratedTradingPipeline:
     ) -> Optional[OrderResult]:
         """Process incoming MarketTickEvent through the full Sentinel decision and execution pipeline.
 
+        Strictly enforces the 3.0-second competition deadline. If decision latency exceeds 3.0s,
+        records a deadline miss, forces NO_TRADE abstention, and vetoes order submission.
+
         Converts raw tick to canonical MarketBar, maintains chronological monotonicity,
         evaluates SentinelDecisionEngine (incorporating multi-strategy signals, causal ML prediction,
         regime detection, friction economics, profit realization, and deterministic risk gating),
         and routes the authorized decision through the ExecutionAdapter.
         """
+        t_start = time.perf_counter()
         from nova.quant.contracts import MarketBar, TimestampSemantics, DataQualityStatus
         from nova.research.adapters import market_tick_to_market_bar
 
@@ -311,7 +327,64 @@ class IntegratedTradingPipeline:
                     position_state=pos_state,
                     portfolio_state=portfolio_state,
                 )
-                return self.process_trade_decision(decision, bar)
+                t_dec = time.perf_counter()
+                dec_latency_ms = (t_dec - t_start) * 1000.0
+                self.decision_latencies_ms.append(dec_latency_ms)
+
+                is_deadline_miss = dec_latency_ms > (self.hard_deadline_seconds * 1000.0)
+                attempted_order = False
+                result: Optional[OrderResult] = None
+
+                if is_deadline_miss:
+                    self.deadline_misses += 1
+                    logger.warning(
+                        "[PIPELINE:DEADLINE_MISS] Decision for %s took %.1f ms (> %.1f ms limit). Abstaining from order.",
+                        ticker,
+                        dec_latency_ms,
+                        self.hard_deadline_seconds * 1000.0,
+                    )
+                    reasons = list(decision.selection_or_rejection_reasons) + ["DECISION_TIMEOUT_EXCEEDED_3S_DEADLINE"]
+                else:
+                    action_val = decision.selected_action.value
+                    if action_val not in ("NO_TRADE", "HOLD", "NONE"):
+                        attempted_order = True
+                    result = self.process_trade_decision(decision, bar)
+                    reasons = list(decision.selection_or_rejection_reasons)
+
+                full_latency_ms = (time.perf_counter() - t_start) * 1000.0
+                self.full_action_latencies_ms.append(full_latency_ms)
+
+                rec = {
+                    "decision_id": decision.decision_id,
+                    "timestamp": bar.source_timestamp.isoformat(),
+                    "instrument_id": bar.ticker,
+                    "data_freshness": bar.data_quality.value,
+                    "selected_strategy": decision.selected_strategy,
+                    "model_versions": dict(decision.model_versions),
+                    "expected_gross_return": decision.expected_gross_return,
+                    "estimated_all_in_cost": decision.estimated_all_in_cost,
+                    "expected_net_return": decision.expected_net_return,
+                    "uncertainty_estimate": decision.uncertainty_estimate,
+                    "selected_action": "NO_TRADE" if is_deadline_miss else decision.selected_action.value,
+                    "reasons": reasons,
+                    "decision_latency_ms": round(dec_latency_ms, 2),
+                    "full_action_latency_ms": round(full_latency_ms, 2),
+                    "deadline_status": "MISSED" if is_deadline_miss else "ON_TIME",
+                    "order_submission_attempted": attempted_order,
+                    "order_result": (
+                        {
+                            "order_id": result.order_id,
+                            "status": result.status.value,
+                            "filled_quantity": result.filled_quantity,
+                            "execution_price": result.execution_price,
+                            "charges": result.charges,
+                        }
+                        if result
+                        else None
+                    ),
+                }
+                self.decision_ledger.append(rec)
+                return result
             except Exception as exc:
                 logger.error("[PIPELINE:DECISION_ERROR] Exception in SentinelDecisionEngine for %s: %s", ticker, exc, exc_info=True)
                 return None
@@ -353,3 +426,43 @@ class IntegratedTradingPipeline:
         elif result is None:
             self.orders_vetoed += 1
         return result
+
+    def get_decision_ledger(self) -> list[dict[str, Any]]:
+        """Return point-in-time trace of all evaluated decisions."""
+        return list(self.decision_ledger)
+
+    def save_decision_ledger(self, file_path: str | Path) -> None:
+        """Export decision ledger to JSON Lines format."""
+        p = Path(file_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            for entry in self.decision_ledger:
+                f.write(json.dumps(entry, default=str) + "\n")
+
+    def get_latency_metrics(self) -> dict[str, Any]:
+        """Compute summary latency distribution and deadline compliance metrics."""
+        if not self.decision_latencies_ms:
+            return {
+                "count": 0,
+                "p50_ms": 0.0,
+                "p95_ms": 0.0,
+                "p99_ms": 0.0,
+                "mean_ms": 0.0,
+                "max_ms": 0.0,
+                "deadline_misses": 0,
+                "deadline_success_rate_pct": 100.0,
+            }
+        import numpy as np
+        arr = np.array(self.decision_latencies_ms)
+        n = len(arr)
+        misses = self.deadline_misses
+        return {
+            "count": n,
+            "p50_ms": float(np.percentile(arr, 50)),
+            "p95_ms": float(np.percentile(arr, 95)),
+            "p99_ms": float(np.percentile(arr, 99)),
+            "mean_ms": float(np.mean(arr)),
+            "max_ms": float(np.max(arr)),
+            "deadline_misses": misses,
+            "deadline_success_rate_pct": float((n - misses) / n * 100.0) if n > 0 else 100.0,
+        }

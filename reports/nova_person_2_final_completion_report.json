@@ -1,0 +1,91 @@
+{
+  "metadata": {
+    "project": "NOVA Quantitative Trading System",
+    "milestone": "Person 2 Final Closure",
+    "report_name": "Person 2 Final Completion & Research Handoff Report",
+    "generated_at_utc": "2026-10-30T04:45:00+00:00",
+    "engineer": "Person 2 (Quantitative Research & Modeling)",
+    "branch": "Divyank",
+    "status": "PASS_ENGINEERING_ONLY",
+    "summary_verdict": "COMPLETE_WITH_DOCUMENTED_LIMITATIONS"
+  },
+  "deliverables_summary": {
+    "total_automated_tests_passing": 345,
+    "unit_tests_count": 251,
+    "kafka_integration_tests_count": 94,
+    "git_cleanliness": "CLEAN (no merge conflicts, no whitespace errors, large weights ignored)"
+  },
+  "chronos_2_benchmark_decision": {
+    "model_id": "amazon/chronos-2",
+    "evaluation_observations": 4770,
+    "test_split_dates": ["2024-06-26", "2026-05-20"],
+    "metrics": {
+      "directional_accuracy_pct": 49.85,
+      "balanced_accuracy_pct": 49.54,
+      "mae": 0.017502,
+      "rmse": 0.026244,
+      "roc_auc": 0.4956,
+      "warm_inference_ms": 141.7
+    },
+    "comparison": {
+      "positive_drift_baseline_acc_pct": 52.33,
+      "mcnemar_p_vs_drift": 0.01,
+      "compact_xgboost_v3_acc_pct": 51.93,
+      "mcnemar_p_vs_v3": 0.0328,
+      "xgboost_regressor_v1_mae": 0.016374,
+      "xgboost_inference_ms": 0.8
+    },
+    "decision": "REJECT_FROM_PRODUCTION_PATH",
+    "rationale": "Chronos-2 is statistically significantly inferior to the positive drift baseline (p=0.0100) and compact XGBoost v3 (p=0.0328), has higher regression error (0.017502 vs 0.016374), and imposes 140x higher latency (141.7 ms vs <1 ms)."
+  },
+  "cost_model_audit_and_reconciliation": {
+    "platform_rules": {
+      "flat_brokerage_inr": 20.0,
+      "flat_dp_charges_inr": 15.34,
+      "stcg_rate": 0.15,
+      "ltcg_rate": 0.10,
+      "ltcg_exemption_inr": 100000.0,
+      "proportional_fee_bps": 0.0
+    },
+    "discrepancy_resolved": {
+      "description": "Gross PnL Rs 4,82,185 vs Net PnL Rs 4,09,700 with Rs 200 reported fees left an unexplained Rs 72,500 gap.",
+      "root_cause": "A flat 15% STCG tax was subtracted from trading gains without displaying a tax column in the summary table, and failed to recognize the 693-day holding period as Long-Term Capital Gains (LTCG).",
+      "terminal_liquidation_accounting": {
+        "orders": 20,
+        "gross_pnl_inr": 482184.93,
+        "brokerage_fees_inr": 400.0,
+        "dp_charges_inr": 153.4,
+        "slippage_cost_inr": 0.0,
+        "stcg_tax_inr": 0.0,
+        "ltcg_tax_inr": 55087.3,
+        "total_deductions_inr": 55640.7,
+        "net_pnl_inr": 426544.22,
+        "net_return_pct": 42.65,
+        "identity_verified": true
+      },
+      "open_marked_to_market_accounting": {
+        "orders": 10,
+        "gross_pnl_inr": 482184.93,
+        "brokerage_fees_inr": 200.0,
+        "dp_charges_inr": 0.0,
+        "realized_tax_inr": 0.0,
+        "net_pnl_inr": 481984.93,
+        "net_return_pct": 48.2,
+        "identity_verified": true
+      }
+    }
+  },
+  "research_components_verified": {
+    "causal_feature_pipeline": "Verified strictly point-in-time; zero future lookahead.",
+    "transparent_regime_detector": "Emits Interface Contract B ModelPrediction; 4 explicit market regimes.",
+    "xgboost_regression_v1": "12/16 features; native booster with schema parity validation.",
+    "compact_classifier_v3": "6 robust features; 51.93% test accuracy; strict parameter controls.",
+    "gbdt_baseline_v1": "Zero-dependency pure Python GBDT for offline fallback.",
+    "dataset_provenance": "data/replay/canonical_manthan_v2 (SHA-256: fb485fbf2a393c26730d8a6d6386e0a39df6206c84a4a241ab4c347bb166b738).",
+    "embargo_splits": "Purged embargo gap enforced between chronological splits.",
+    "selective_prediction": "Regime-gated Policy A and Uncertainty Policy B documented with coverage trade-offs.",
+    "news_sentiment_feasibility": "Evaluated and excluded from core prediction path due to unverified causality and network latency.",
+    "person_3_handoff_interface": "Complete, clean ModelPrediction contract and point-in-time inference APIs documented."
+  }
+}
+

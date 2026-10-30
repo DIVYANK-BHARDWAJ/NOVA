@@ -373,3 +373,41 @@ class TransparentRegimeDetector:
             )
 
         raise ContractValidationError(f"Unsupported event type for process_event: {type(obj)}")
+    def detect_regime(self, bars: Sequence[Any]) -> Any:
+        """Adapter method satisfying SentinelDecisionEngine's RegimeOutput contract."""
+        from nova.decision.regime import MarketRegimeType, RegimeOutput
+        pred = self.detect(bars)
+        meta = pred.metadata or {}
+        dom = str(meta.get("dominant_regime", "UNKNOWN"))
+        ker = float(meta.get("efficiency_ratio", meta.get("ker", 0.0)))
+        sigma = float(meta.get("ewma_volatility", meta.get("volatility_sigma", 0.005)))
+        is_high_vol = bool(meta.get("is_high_volatility", False))
+        conf = float(pred.confidence_or_uncertainty)
+
+        if "TRENDING" in dom:
+            rtype = MarketRegimeType.TRENDING
+        elif dom == "RANGING":
+            rtype = MarketRegimeType.RANGING
+        elif dom == "HIGH_VOLATILITY" or is_high_vol:
+            rtype = MarketRegimeType.HIGH_VOLATILITY
+        elif dom == "UNKNOWN":
+            rtype = MarketRegimeType.UNKNOWN
+        else:
+            rtype = MarketRegimeType.NORMAL
+
+        denom = max(1e-4, self.config.ker_trend_threshold - self.config.ker_ranging_threshold)
+        trend_share = max(0.0, min(1.0, (ker - self.config.ker_ranging_threshold) / denom))
+
+        latest_bar = self._normalize_to_market_bar(bars[-1]) if bars else None
+        ts = latest_bar.source_timestamp if latest_bar else pred.prediction_timestamp
+
+        return RegimeOutput(
+            regime_type=rtype,
+            efficiency_ratio=ker,
+            trend_share=trend_share,
+            ewma_volatility=max(0.005, sigma),
+            is_high_volatility=is_high_vol,
+            evaluation_timestamp=ts,
+            confidence=conf,
+            reason_codes=(f"TRANSPARENT_REGIME_{dom}", f"KER_{ker:.3f}", f"SIGMA_{sigma:.4f}"),
+        )
