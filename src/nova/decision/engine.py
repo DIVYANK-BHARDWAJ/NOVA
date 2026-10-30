@@ -237,6 +237,18 @@ class SentinelDecisionEngine:
             except Exception as e:
                 reasons.append(f"REGIME_ERROR_FALLBACK_DEFAULT_WEIGHTS:{str(e)}")
 
+        # 2b. Contradiction Veto Filter
+        is_flat_now = abs(current_position_exposure) <= 1e-4
+        if is_flat_now and self.config.enable_contradiction_veto:
+            if (trend_sig.raw_score * mr_sig.raw_score < 0) and min(abs(trend_sig.raw_score), abs(mr_sig.raw_score)) >= self.config.contradiction_threshold:
+                reasons.append(f"CONTRADICTION_VETO_TREND_{trend_sig.raw_score:.2f}_VS_MR_{mr_sig.raw_score:.2f}")
+                return self._build_abstain_decision(
+                    ticker=ticker,
+                    timestamp=as_of,
+                    reasons=reasons,
+                    current_position=current_position_exposure,
+                )
+
         base_score = (trend_sig.raw_score * norm_w_trend) + (mr_sig.raw_score * norm_w_mr)
         gross_trend = trend_sig.expected_gross_return or 0.0
         gross_mr = mr_sig.expected_gross_return or 0.0
