@@ -8,6 +8,7 @@ universe, protects against duplicate execution on timeouts, and emits execution 
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 import uuid
@@ -689,31 +690,88 @@ class ExecutionAdapter:
             )
             return None
 
-        # Map TradeDecision ActionType to OrderAction
+        # Map TradeDecision ActionType to OrderAction with signed position and short-side awareness
+        is_short_position = current_position_shares < 0
+        current_short_shares = abs(current_position_shares) if is_short_position else 0
+        current_long_shares = current_position_shares if current_position_shares > 0 else 0
+
+        target = float(getattr(decision, "target_quantity_or_exposure", 0.0))
+
         if action_val == "BUY":
             order_action = OrderAction.BUY
-        elif action_val in ("SELL", "EXIT", "REDUCE"):
+            if target <= 1.0:
+                notional = target * max(current_portfolio_value, 0.0)
+                target_shares = int(math.floor(notional / max(current_price, 1e-4)))
+                quantity = max(0, target_shares - current_long_shares)
+            else:
+                quantity = max(0, int(target) - current_long_shares)
+
+        elif action_val == "SHORT":
+            order_action = OrderAction.SHORT
+            if abs(target) <= 1.0:
+                notional = abs(target) * max(current_portfolio_value, 0.0)
+                target_shares = int(math.floor(notional / max(current_price, 1e-4)))
+                quantity = max(0, target_shares - current_short_shares)
+            else:
+                quantity = max(0, int(abs(target)) - current_short_shares)
+
+        elif action_val == "COVER":
+            order_action = OrderAction.COVER
+            if not is_short_position or current_short_shares == 0:
+                logger.warning(
+                    "[EXECUTION:COVER_NO_SHORT] COVER attempted for %s without open short position.",
+                    getattr(decision, "instrument_id", "unknown"),
+                )
+                return None
+            if target == 0.0:
+                quantity = current_short_shares
+            elif abs(target) <= 1.0:
+                target_short_shares = int(math.floor(abs(target) * max(current_portfolio_value, 0.0) / max(current_price, 1e-4)))
+                quantity = max(0, current_short_shares - target_short_shares)
+            else:
+                quantity = max(0, current_short_shares - int(abs(target)))
+            quantity = min(quantity, current_short_shares)
+
+        elif action_val in ("EXIT", "REDUCE"):
+            if is_short_position:
+                order_action = OrderAction.COVER
+                if action_val == "EXIT" or target == 0.0:
+                    quantity = current_short_shares
+                else:
+                    target_short_shares = int(math.floor(abs(target) * max(current_portfolio_value, 0.0) / max(current_price, 1e-4))) if abs(target) <= 1.0 else int(abs(target))
+                    quantity = max(0, current_short_shares - target_short_shares)
+                quantity = min(quantity, current_short_shares)
+            else:
+                order_action = OrderAction.SELL
+                if action_val == "EXIT" or target == 0.0:
+                    quantity = current_long_shares
+                elif target <= 1.0:
+                    target_shares = int(math.floor(target * max(current_portfolio_value, 0.0) / max(current_price, 1e-4)))
+                    quantity = max(0, current_long_shares - target_shares)
+                else:
+                    quantity = int(target)
+                quantity = min(quantity, current_long_shares)
+
+        elif action_val == "SELL":
             order_action = OrderAction.SELL
+            if current_long_shares == 0:
+                logger.warning(
+                    "[EXECUTION:SELL_NO_LONG] SELL attempted for %s without open long position.",
+                    getattr(decision, "instrument_id", "unknown"),
+                )
+                return None
+            if target == 0.0:
+                quantity = current_long_shares
+            elif target <= 1.0:
+                target_shares = int(math.floor(target * max(current_portfolio_value, 0.0) / max(current_price, 1e-4)))
+                quantity = max(0, current_long_shares - target_shares)
+            else:
+                quantity = int(target)
+            quantity = min(quantity, current_long_shares)
+
         else:
             logger.warning("[EXECUTION:UNSUPPORTED] Unsupported TradeDecision action: %s", action_val)
             return None
-
-        # Compute sizing (shares)
-        target = float(getattr(decision, "target_quantity_or_exposure", 0.0))
-        if action_val == "EXIT":
-            quantity = current_position_shares
-        elif target <= 1.0:
-            # Exposure fraction (e.g. 0.20 of portfolio)
-            notional = target * max(current_portfolio_value, 0.0)
-            target_shares = int(notional / max(current_price, 1e-4))
-            if action_val == "BUY":
-                quantity = max(0, target_shares - current_position_shares)
-            elif action_val in ("REDUCE", "SELL"):
-                quantity = max(0, current_position_shares - target_shares)
-            else:
-                quantity = target_shares
-        else:
-            quantity = int(target)
 
         if quantity <= 0:
             logger.warning(

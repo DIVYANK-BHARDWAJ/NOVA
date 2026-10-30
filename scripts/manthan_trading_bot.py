@@ -30,9 +30,10 @@ import signal
 import sys
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Optional, cast
 import urllib.error
 import urllib.request
+import uuid
 
 # Ensure all repository source roots are on sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -163,8 +164,9 @@ class ManthanTradingBot:
             stocks = resp.get("stocks") or resp.get("tickers") or []
             if isinstance(stocks, list):
                 self.tradable_tickers = {
-                    (s.get("ticker") if isinstance(s, dict) else str(s)).upper()
+                    (s.get("ticker") if isinstance(s, dict) and s.get("ticker") is not None else str(s)).upper()
                     for s in stocks
+                    if (isinstance(s, dict) and s.get("ticker") is not None) or (not isinstance(s, dict) and s is not None)
                 }
                 logger.info("[UNIVERSE] Discovered %d tradable tickers: %s", len(self.tradable_tickers), sorted(self.tradable_tickers))
         return self.tradable_tickers
@@ -263,6 +265,7 @@ class ManthanTradingBot:
 
         act_enum = OrderAction(action.upper())
         intent = OrderIntent(
+            intent_id=f"intent_{uuid.uuid4().hex[:12]}",
             ticker=ticker.upper(),
             action=act_enum,
             quantity=quantity,
@@ -317,7 +320,7 @@ class ManthanTradingBot:
         )
 
 
-def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Optional[Path] = None) -> int:
+def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Optional[Path] = None, allow_short: bool = True) -> int:
     """Run bot in either offline mock simulation mode or live production mode."""
     if mock_mode:
         print("=" * 78)
@@ -369,7 +372,7 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
             ),
             ledger=mock_ledger,
         )
-        mock_risk = DeterministicRiskGate(RiskConfiguration(allow_short=False))
+        mock_risk = DeterministicRiskGate(RiskConfiguration(allow_short=allow_short))
         mock_ml_predictor = None
         try:
             from nova.models.xgboost_model import XGBoostPredictionModel
@@ -390,7 +393,7 @@ def run_bot(mock_mode: bool = False, max_events: int | None = None, env_path: Op
                 predictor_weight=0.20,
                 min_net_edge_bps=1.0,
                 target_exposure=0.15,
-                allow_short=False,
+                allow_short=allow_short,
                 use_regime_weighting=True,
                 initial_capital=1_000_000.0,
             ),
@@ -590,9 +593,9 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
     # 6. Start Pre-Flight Heartbeat Worker (Step D, E, G)
     heartbeat_worker = HeartbeatWorker(client=client)
     heartbeat_worker.start()
-    dispatcher.subscribe_preflight(heartbeat_worker.handle_event)
-    dispatcher.subscribe_tick(heartbeat_worker.handle_event)
-    dispatcher.subscribe_news(heartbeat_worker.handle_event)
+    dispatcher.subscribe_preflight(cast(Any, heartbeat_worker.handle_event))
+    dispatcher.subscribe_tick(cast(Any, heartbeat_worker.handle_event))
+    dispatcher.subscribe_news(cast(Any, heartbeat_worker.handle_event))
     logger.info("[HEARTBEAT:INIT] HeartbeatWorker active and listening for pre-flight events.")
 
     # 7. Start Lifecycle Monitor (Step E, G)
@@ -634,7 +637,7 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
         from nova.strategies.trend_following import TrendFollowingStrategy
         from nova.strategies.mean_reversion import MeanReversionStrategy
 
-        risk_cfg = RiskConfiguration()
+        risk_cfg = RiskConfiguration(allow_short=True)
         risk_gate = DeterministicRiskGate(risk_cfg)
 
         ml_pred = None
@@ -668,10 +671,25 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
             predictor_weight=0.20,
             min_net_edge_bps=15.0,
             target_exposure=0.15,
-            allow_short=False,
+            allow_short=True,
             use_regime_weighting=True,
             enable_profit_realization=True,
             initial_capital=initial_cash,
+        )
+
+        if risk_cfg.allow_short != engine_cfg.allow_short:
+            raise RuntimeError(
+                f"Contradictory short configuration: RiskGate.allow_short={risk_cfg.allow_short} "
+                f"!= DecisionEngine.allow_short={engine_cfg.allow_short}"
+            )
+        logger.info(
+            "[CONFIG] Effective runtime configuration: allow_short=%s (RiskGate=%s, DecisionEngine=%s), "
+            "min_net_edge_bps=%.1f, enable_profit_realization=%s",
+            engine_cfg.allow_short,
+            risk_cfg.allow_short,
+            engine_cfg.allow_short,
+            engine_cfg.min_net_edge_bps,
+            engine_cfg.enable_profit_realization,
         )
         decision_engine = SentinelDecisionEngine(
             config=engine_cfg,
@@ -705,7 +723,7 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
         )
 
         # Primary decision path: subscribe pipeline directly to market ticks
-        dispatcher.subscribe_tick(pipeline.handle_market_tick)
+        dispatcher.subscribe_tick(cast(Any, pipeline.handle_market_tick))
         logger.info("[PIPELINE:INIT] IntegratedTradingPipeline connected to SentinelDecisionEngine and EventDispatcher.")
 
         # Secondary research path: purely analytical observation (zero order placement)
@@ -719,7 +737,7 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
             strategy=strategy,
             on_candidate_signal=_on_research_signal,
         )
-        dispatcher.subscribe_tick(connector.handle_market_tick)
+        dispatcher.subscribe_tick(cast(Any, connector.handle_market_tick))
         logger.info("[STRATEGY:INIT] Person 2 EMACrossoverStrategy connected as secondary analytical listener (non-executing).")
     except Exception as exc:
         logger.warning("[PIPELINE:INIT] Pipeline initialization notice: %s", exc)
