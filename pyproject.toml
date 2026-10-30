@@ -18,6 +18,9 @@ where = ["src", "kafka/src", "execution/src"]
 include = ["src", "tests", "scripts", "kafka/src", "execution/src"]
 extraPaths = ["src", "kafka/src", "execution/src"]
 
+[tool.pyrefly]
+search-path = ["src", "scripts", "kafka/src", "execution/src", "."]
+
 [tool.pytest.ini_options]
 testpaths = ["kafka/tests", "execution/tests", "tests"]
 pythonpath = ["src", "kafka/src", "execution/src", "."]
