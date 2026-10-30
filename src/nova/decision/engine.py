@@ -104,7 +104,7 @@ class SentinelDecisionEngine:
         friction_engine: MarketFrictionEngine | None = None,
         risk_gate: DeterministicRiskGate | None = None,
         predictor: BasePredictor | None = None,
-        regime_detector: MarketRegimeDetector | None = None,
+        regime_detector: Any = None,
         profit_realization_manager: ProfitRealizationManager | None = None,
     ) -> None:
         self.config = config or DecisionEngineConfig()

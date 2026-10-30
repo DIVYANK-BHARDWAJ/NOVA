@@ -753,12 +753,17 @@ class ModelPrediction:
         return cls.from_dict(payload)
 
 
-def validate_model_prediction_schema_parity(data: Mapping[str, Any]) -> list[str]:
-    """Validates a dictionary against canonical schemas/model_prediction.schema.json rules.
+def validate_model_prediction_schema_parity(data: Mapping[str, Any] | ModelPrediction) -> list[str]:
+    """Validates a dictionary or ModelPrediction instance against canonical schemas/model_prediction.schema.json rules.
 
     Pure standard-library implementation ensuring 100% parity without third-party dependencies.
     Returns a list of error strings (empty list indicates full compliance).
     """
+    if isinstance(data, ModelPrediction):
+        data = data.to_dict()
+    elif hasattr(data, "to_dict") and callable(getattr(data, "to_dict")):
+        data = data.to_dict()
+
     errors: list[str] = []
     if not isinstance(data, Mapping):
         return [f"Payload must be an object (Mapping), got {type(data)}"]

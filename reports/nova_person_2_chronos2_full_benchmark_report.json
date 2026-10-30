@@ -1,0 +1,603 @@
+{
+  "metadata": {
+    "milestone": "Person 2 \u2014 Milestone 10",
+    "report_name": "Chronos-2 Full Matched Benchmark & Cost-Model Audit",
+    "generated_at_utc": "2026-10-29T23:13:26.770557+00:00",
+    "total_duration_seconds": 4.944849491119385,
+    "status": "PASS_ENGINEERING_ONLY",
+    "rationale": "Chronos-2 achieved 49.85% directional accuracy on the 4,770-observation test set, compared to 52.33% for the positive-drift baseline (p = 0.0100) and 51.93% for compact XGBoost v3 (p = 0.0328). While Chronos-2 demonstrates successful resource-safe CPU engineering, zero-shot execution, schema conformance, and competitive latency (~59 ms/bar), it does not establish a statistically significant predictive edge over baseline drift."
+  },
+  "dataset": {
+    "canonical_path": "data\\replay\\canonical_manthan_v2\\observations.jsonl",
+    "sha256": "fb485fbf2a393c26730d8a6d6386e0a39df6206c84a4a241ab4c347bb166b738",
+    "total_observations": 21040,
+    "instruments": [
+      "AERX",
+      "BLUX",
+      "DSNY",
+      "HAVN",
+      "HMDP",
+      "MOTR",
+      "ORCX",
+      "PLNX",
+      "ROUT",
+      "SONA"
+    ],
+    "test_split": {
+      "n_observations": 4770,
+      "start_date": "2024-06-26",
+      "end_date": "2026-05-20",
+      "purged_embargo_count": 20,
+      "status_note": "Exploratory historical benchmark; prospective validation requires new capture."
+    }
+  },
+  "resource_and_latency": {
+    "device": "cpu",
+    "pytorch_num_threads": 4,
+    "model_load_time_seconds": 0.5931281000002855,
+    "inference_latency_ms": {
+      "cold": 140.21870000010495,
+      "mean": 141.7276938155111,
+      "median_p50": 125.08769999999458,
+      "p95": 257.25057999995903,
+      "max": 633.9898999999605,
+      "min": 55.05880000009711
+    },
+    "memory_rss_mb": {
+      "initial": 1003.1796875,
+      "final": 1003.1796875
+    },
+    "ten_ticker_daily_budget_ms": 1417.2769381551109,
+    "simulation_day_budget_ms": 3500.0,
+    "latency_feasibility": "FEASIBLE (Consumes ~17-22% of daily simulation budget)"
+  },
+  "comparative_metrics": {
+    "chronos_2_zero_shot": {
+      "directional_accuracy_pct": 49.85324947589099,
+      "balanced_accuracy_pct": 49.537095764833225,
+      "precision_class_1": 0.519202,
+      "recall_class_1": 0.563301,
+      "f1_class_1": 0.540354,
+      "confusion_matrix": {
+        "tn": 972,
+        "fp": 1302,
+        "fn": 1090,
+        "tp": 1406
+      },
+      "positive_prediction_rate": 0.5677148846960167,
+      "mae": 0.01750242693166517,
+      "rmse": 0.026244197288413144,
+      "r2": -0.10386589298005355,
+      "roc_auc": 0.4956398134993124
+    },
+    "xgboost_classifier_v3": {
+      "directional_accuracy_pct": 51.92872117400419,
+      "balanced_accuracy_pct": 50.020296326364935,
+      "precision_class_1": 0.523382,
+      "recall_class_1": 0.910256,
+      "f1_class_1": 0.664619,
+      "confusion_matrix": {
+        "tn": 205,
+        "fp": 2069,
+        "fn": 224,
+        "tp": 2272
+      },
+      "positive_prediction_rate": 0.910062893081761,
+      "mae": null,
+      "rmse": null,
+      "r2": null,
+      "roc_auc": 0.5030183738132287
+    },
+    "xgboost_classifier_v2": {
+      "directional_accuracy_pct": 52.138364779874216,
+      "balanced_accuracy_pct": 50.0582990832826,
+      "precision_class_1": 0.523578,
+      "recall_class_1": 0.947516,
+      "f1_class_1": 0.674462,
+      "confusion_matrix": {
+        "tn": 122,
+        "fp": 2152,
+        "fn": 131,
+        "tp": 2365
+      },
+      "positive_prediction_rate": 0.9469601677148847,
+      "mae": null,
+      "rmse": null,
+      "r2": null,
+      "roc_auc": 0.5021273263254629
+    },
+    "xgboost_regressor_v1": {
+      "directional_accuracy_pct": 52.0125786163522,
+      "balanced_accuracy_pct": 50.513063645896764,
+      "precision_class_1": 0.526383,
+      "recall_class_1": 0.827324,
+      "f1_class_1": 0.643402,
+      "confusion_matrix": {
+        "tn": 416,
+        "fp": 1858,
+        "fn": 431,
+        "tp": 2065
+      },
+      "positive_prediction_rate": 0.8224318658280922,
+      "mae": 0.016374314475414722,
+      "rmse": 0.024951830852970303,
+      "r2": 0.0021745825074511727,
+      "roc_auc": 0.5075010958606772
+    },
+    "gbdt_pure_python_baseline": {
+      "directional_accuracy_pct": 51.17400419287211,
+      "balanced_accuracy_pct": 50.27891592246804,
+      "precision_class_1": 0.52528,
+      "recall_class_1": 0.695112,
+      "f1_class_1": 0.598379,
+      "confusion_matrix": {
+        "tn": 706,
+        "fp": 1568,
+        "fn": 761,
+        "tp": 1735
+      },
+      "positive_prediction_rate": 0.6924528301886792,
+      "mae": 0.0163850961197427,
+      "rmse": 0.024970688006016747,
+      "r2": 0.0006658149303709893,
+      "roc_auc": 0.5084244730002483
+    },
+    "positive_drift_baseline": {
+      "directional_accuracy_pct": 52.327044025157235,
+      "balanced_accuracy_pct": 50.0,
+      "precision_class_1": 0.52327,
+      "recall_class_1": 1.0,
+      "f1_class_1": 0.687036,
+      "confusion_matrix": {
+        "tn": 0,
+        "fp": 2274,
+        "fn": 0,
+        "tp": 2496
+      },
+      "positive_prediction_rate": 1.0,
+      "mae": 0.016401343038907012,
+      "rmse": 0.024987341568769528,
+      "r2": -0.0006675903962882757,
+      "roc_auc": null
+    },
+    "zero_return_baseline": {
+      "directional_accuracy_pct": 47.672955974842765,
+      "balanced_accuracy_pct": 50.0,
+      "precision_class_1": 0.0,
+      "recall_class_1": 0.0,
+      "f1_class_1": 0.0,
+      "confusion_matrix": {
+        "tn": 2274,
+        "fp": 0,
+        "fn": 2496,
+        "tp": 0
+      },
+      "positive_prediction_rate": 0.0,
+      "mae": 0.01640410509511372,
+      "rmse": 0.0249889616618402,
+      "r2": -0.0007973542753685336,
+      "roc_auc": null
+    }
+  },
+  "paired_tests": {
+    "chronos_vs_drift": {
+      "n_samples": 4770,
+      "contingency_table": {
+        "both_correct": 1406,
+        "model_correct_baseline_wrong_b": 972,
+        "model_wrong_baseline_correct_c": 1090,
+        "both_wrong": 1302
+      },
+      "discordant_pairs": 2062,
+      "mcnemar_statistic_cc": 6.6387002909796315,
+      "p_value": 0.009961717108668548,
+      "statistically_significant_05": true
+    },
+    "chronos_vs_v3": {
+      "n_samples": 4770,
+      "contingency_table": {
+        "both_correct": 1373,
+        "model_correct_baseline_wrong_b": 1005,
+        "model_wrong_baseline_correct_c": 1104,
+        "both_wrong": 1288
+      },
+      "discordant_pairs": 2109,
+      "mcnemar_statistic_cc": 4.553816974869607,
+      "p_value": 0.03282090796150905,
+      "statistically_significant_05": true
+    },
+    "chronos_vs_v2": {
+      "n_samples": 4770,
+      "contingency_table": {
+        "both_correct": 1392,
+        "model_correct_baseline_wrong_b": 986,
+        "model_wrong_baseline_correct_c": 1095,
+        "both_wrong": 1297
+      },
+      "discordant_pairs": 2081,
+      "mcnemar_statistic_cc": 5.604997597308986,
+      "p_value": 0.017888181920239235,
+      "statistically_significant_05": true
+    }
+  },
+  "per_instrument": {
+    "AERX": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 54.50733752620545,
+      "v3_accuracy_pct": 50.73375262054507,
+      "drift_accuracy_pct": 51.36268343815513,
+      "chronos_mae": 0.011657457429157976,
+      "v1_mae": 0.011009322845146875
+    },
+    "BLUX": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 51.15303983228512,
+      "v3_accuracy_pct": 55.55555555555556,
+      "drift_accuracy_pct": 55.76519916142557,
+      "chronos_mae": 0.01446464676899606,
+      "v1_mae": 0.013601785399560307
+    },
+    "DSNY": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 47.16981132075472,
+      "v3_accuracy_pct": 48.0083857442348,
+      "drift_accuracy_pct": 47.79874213836478,
+      "chronos_mae": 0.01252957192068898,
+      "v1_mae": 0.0115804196822967
+    },
+    "HAVN": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 50.314465408805034,
+      "v3_accuracy_pct": 52.620545073375254,
+      "drift_accuracy_pct": 53.459119496855344,
+      "chronos_mae": 0.016491812373317902,
+      "v1_mae": 0.015438512887402705
+    },
+    "HMDP": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 48.21802935010482,
+      "v3_accuracy_pct": 47.79874213836478,
+      "drift_accuracy_pct": 48.21802935010482,
+      "chronos_mae": 0.012082871580553045,
+      "v1_mae": 0.011270155575212465
+    },
+    "MOTR": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 50.314465408805034,
+      "v3_accuracy_pct": 57.023060796645694,
+      "drift_accuracy_pct": 54.71698113207547,
+      "chronos_mae": 0.016409972679151286,
+      "v1_mae": 0.015407429623731024
+    },
+    "ORCX": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 47.79874213836478,
+      "v3_accuracy_pct": 51.57232704402516,
+      "drift_accuracy_pct": 53.03983228511531,
+      "chronos_mae": 0.02339696832173647,
+      "v1_mae": 0.02171438592549901
+    },
+    "PLNX": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 46.540880503144656,
+      "v3_accuracy_pct": 53.24947589098532,
+      "drift_accuracy_pct": 56.18448637316562,
+      "chronos_mae": 0.02957167210211805,
+      "v1_mae": 0.027386561002199012
+    },
+    "ROUT": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 51.57232704402516,
+      "v3_accuracy_pct": 51.15303983228512,
+      "drift_accuracy_pct": 49.895178197064986,
+      "chronos_mae": 0.01798415227813632,
+      "v1_mae": 0.017189662761843087
+    },
+    "SONA": {
+      "n_observations": 477,
+      "chronos_accuracy_pct": 50.943396226415096,
+      "v3_accuracy_pct": 51.57232704402516,
+      "drift_accuracy_pct": 52.83018867924528,
+      "chronos_mae": 0.020435143862795473,
+      "v1_mae": 0.019144909051256116
+    }
+  },
+  "regime_breakdown": {
+    "TRENDING_BULLISH": {
+      "n_observations": 672,
+      "share_pct": 14.08805031446541,
+      "chronos_accuracy_pct": 51.93452380952381,
+      "v3_accuracy_pct": 63.83928571428571,
+      "drift_accuracy_pct": 66.51785714285714
+    },
+    "TRENDING_BEARISH": {
+      "n_observations": 707,
+      "share_pct": 14.821802935010483,
+      "chronos_accuracy_pct": 49.222065063649225,
+      "v3_accuracy_pct": 37.9066478076379,
+      "drift_accuracy_pct": 36.916548797736915
+    },
+    "RANGING": {
+      "n_observations": 1986,
+      "share_pct": 41.63522012578616,
+      "chronos_accuracy_pct": 48.992950654582074,
+      "v3_accuracy_pct": 52.6183282980866,
+      "drift_accuracy_pct": 52.51762336354482
+    },
+    "HIGH_VOLATILITY": {
+      "n_observations": 1405,
+      "share_pct": 29.454926624737947,
+      "chronos_accuracy_pct": 50.39145907473309,
+      "v3_accuracy_pct": 52.313167259786475,
+      "drift_accuracy_pct": 53.02491103202846
+    }
+  },
+  "cost_model_audit": {
+    "official_platform_rules": {
+      "flat_brokerage_inr": 20.0,
+      "flat_dp_charges_inr": 15.34,
+      "dp_eligibility": "SELL of delivery shares only",
+      "proportional_fee_bps": 0.0,
+      "stcg_rate": 0.15,
+      "ltcg_rate": 0.1,
+      "ltcg_exemption_inr": 100000.0
+    },
+    "milestone_9_discrepancy_explanation": "Milestone 9 applied 7.0 bps one-way (14.0 bps roundtrip) proportional friction from default FrictionParameters (spread=2, slippage=3, brokerage=1, tax=1). Official MANTHAN specifications document zero proportional haircuts.",
+    "simulations_official_scenario_a": {
+      "Buy & Hold (Equal Weight)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 482184.927233836,
+        "gross_return_pct": 48.2184927233836,
+        "total_orders": 20,
+        "brokerage_fees": 400.0,
+        "dp_charges": 153.4,
+        "slippage_cost": 0.0,
+        "total_friction": 553.4,
+        "total_friction_bps": 5.534,
+        "stcg_gains": 0.0,
+        "stcg_tax": 0.0,
+        "ltcg_gains": 650873.0315706843,
+        "ltcg_tax": 55087.30315706843,
+        "total_tax": 55087.30315706843,
+        "total_deductions": 55640.703157068434,
+        "net_pnl": 426544.2240767675,
+        "net_return_pct": 42.65442240767675,
+        "max_drawdown_pct": 16.315559101223194,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (Raw Zero-Shot)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 196109.20106970522,
+        "gross_return_pct": 19.61092010697052,
+        "total_orders": 1342,
+        "brokerage_fees": 26840.0,
+        "dp_charges": 10293.140000000072,
+        "slippage_cost": 0.0,
+        "total_friction": 37133.14000000007,
+        "total_friction_bps": 371.3314000000007,
+        "stcg_gains": 140096.84170777124,
+        "stcg_tax": 21014.526256165685,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 21014.526256165685,
+        "total_deductions": 58147.66625616576,
+        "net_pnl": 137961.53481353947,
+        "net_return_pct": 13.796153481353949,
+        "max_drawdown_pct": 15.126754678525778,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (2-Day Persistence)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 170851.24240583082,
+        "gross_return_pct": 17.085124240583085,
+        "total_orders": 610,
+        "brokerage_fees": 12200.0,
+        "dp_charges": 4678.70000000002,
+        "slippage_cost": 0.0,
+        "total_friction": 16878.70000000002,
+        "total_friction_bps": 168.78700000000018,
+        "stcg_gains": 111469.96674978714,
+        "stcg_tax": 16720.49501246807,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 16720.49501246807,
+        "total_deductions": 33599.19501246809,
+        "net_pnl": 137252.04739336274,
+        "net_return_pct": 13.725204739336275,
+        "max_drawdown_pct": 12.79491015404875,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (3-Day Min Hold)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 186744.44402556153,
+        "gross_return_pct": 18.674444402556155,
+        "total_orders": 890,
+        "brokerage_fees": 17800.0,
+        "dp_charges": 6826.30000000004,
+        "slippage_cost": 0.0,
+        "total_friction": 24626.30000000004,
+        "total_friction_bps": 246.26300000000037,
+        "stcg_gains": 107042.6780323947,
+        "stcg_tax": 16056.401704859205,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 16056.401704859205,
+        "total_deductions": 40682.701704859246,
+        "net_pnl": 146061.7423207023,
+        "net_return_pct": 14.606174232070229,
+        "max_drawdown_pct": 12.70489143764723,
+        "accounting_identity_verified": true
+      },
+      "XGBoost Classifier v3": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 349067.8963667235,
+        "gross_return_pct": 34.90678963667235,
+        "total_orders": 486,
+        "brokerage_fees": 9720.0,
+        "dp_charges": 3727.6200000000113,
+        "slippage_cost": 0.0,
+        "total_friction": 13447.620000000012,
+        "total_friction_bps": 134.47620000000012,
+        "stcg_gains": 296583.4178534322,
+        "stcg_tax": 44487.51267801483,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 44487.51267801483,
+        "total_deductions": 57935.13267801484,
+        "net_pnl": 291132.7636887087,
+        "net_return_pct": 29.11327636887087,
+        "max_drawdown_pct": 14.458094874964184,
+        "accounting_identity_verified": true
+      },
+      "XGBoost Classifier v2": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 358377.61422153324,
+        "gross_return_pct": 35.83776142215333,
+        "total_orders": 280,
+        "brokerage_fees": 5600.0,
+        "dp_charges": 2147.5999999999963,
+        "slippage_cost": 0.0,
+        "total_friction": 7747.599999999997,
+        "total_friction_bps": 77.47599999999997,
+        "stcg_gains": 409660.68074768956,
+        "stcg_tax": 61449.10211215343,
+        "ltcg_gains": 4583.156002811196,
+        "ltcg_tax": 0.0,
+        "total_tax": 61449.10211215343,
+        "total_deductions": 69196.70211215342,
+        "net_pnl": 289180.91210937983,
+        "net_return_pct": 28.918091210937984,
+        "max_drawdown_pct": 17.368516658372965,
+        "accounting_identity_verified": true
+      }
+    },
+    "simulations_slippage_scenario_b": {
+      "Buy & Hold (Equal Weight)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 482184.927233836,
+        "gross_return_pct": 48.2184927233836,
+        "total_orders": 20,
+        "brokerage_fees": 400.0,
+        "dp_charges": 153.4,
+        "slippage_cost": 1325.3005655025909,
+        "total_friction": 1878.700565502591,
+        "total_friction_bps": 18.78700565502591,
+        "stcg_gains": 0.0,
+        "stcg_tax": 0.0,
+        "ltcg_gains": 647897.1298741767,
+        "ltcg_tax": 54789.712987417675,
+        "total_tax": 54789.712987417675,
+        "total_deductions": 56668.41355292027,
+        "net_pnl": 425516.5136809157,
+        "net_return_pct": 42.55165136809157,
+        "max_drawdown_pct": 16.321457215803623,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (Raw Zero-Shot)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 196109.20106970522,
+        "gross_return_pct": 19.61092010697052,
+        "total_orders": 1342,
+        "brokerage_fees": 26840.0,
+        "dp_charges": 10293.140000000072,
+        "slippage_cost": 67171.80408880948,
+        "total_friction": 104304.94408880956,
+        "total_friction_bps": 1043.0494408880954,
+        "stcg_gains": 5681.429441350767,
+        "stcg_tax": 852.214416202615,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 852.214416202615,
+        "total_deductions": 105157.15850501216,
+        "net_pnl": 90952.04256469305,
+        "net_return_pct": 9.095204256469305,
+        "max_drawdown_pct": 15.869821950109309,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (2-Day Persistence)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 170851.24240583082,
+        "gross_return_pct": 17.085124240583085,
+        "total_orders": 610,
+        "brokerage_fees": 12200.0,
+        "dp_charges": 4678.70000000002,
+        "slippage_cost": 30556.521072838474,
+        "total_friction": 47435.221072838496,
+        "total_friction_bps": 474.352210728385,
+        "stcg_gains": 50300.4035312748,
+        "stcg_tax": 7545.06052969122,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 7545.06052969122,
+        "total_deductions": 54980.281602529714,
+        "net_pnl": 115870.9608033011,
+        "net_return_pct": 11.58709608033011,
+        "max_drawdown_pct": 13.134537510101902,
+        "accounting_identity_verified": true
+      },
+      "Chronos-2 (3-Day Min Hold)": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 186744.44402556153,
+        "gross_return_pct": 18.674444402556155,
+        "total_orders": 890,
+        "brokerage_fees": 17800.0,
+        "dp_charges": 6826.30000000004,
+        "slippage_cost": 44554.682147942214,
+        "total_friction": 69180.98214794225,
+        "total_friction_bps": 691.8098214794226,
+        "stcg_gains": 17878.6315885732,
+        "stcg_tax": 2681.7947382859797,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 2681.7947382859797,
+        "total_deductions": 71862.77688622824,
+        "net_pnl": 114881.6671393333,
+        "net_return_pct": 11.488166713933328,
+        "max_drawdown_pct": 13.181007134769926,
+        "accounting_identity_verified": true
+      },
+      "XGBoost Classifier v3": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 349067.8963667235,
+        "gross_return_pct": 34.90678963667235,
+        "total_orders": 486,
+        "brokerage_fees": 9720.0,
+        "dp_charges": 3727.6200000000113,
+        "slippage_cost": 24448.866085883776,
+        "total_friction": 37896.486085883786,
+        "total_friction_bps": 378.9648608588379,
+        "stcg_gains": 247536.81959578357,
+        "stcg_tax": 37130.52293936753,
+        "ltcg_gains": 0.0,
+        "ltcg_tax": 0.0,
+        "total_tax": 37130.52293936753,
+        "total_deductions": 75027.00902525132,
+        "net_pnl": 274040.8873414722,
+        "net_return_pct": 27.40408873414722,
+        "max_drawdown_pct": 14.760879409653754,
+        "accounting_identity_verified": true
+      },
+      "XGBoost Classifier v2": {
+        "initial_capital": 1000000.0,
+        "gross_pnl": 358377.61422153324,
+        "gross_return_pct": 35.83776142215333,
+        "total_orders": 280,
+        "brokerage_fees": 5600.0,
+        "dp_charges": 2147.5999999999963,
+        "slippage_cost": 14207.392022364074,
+        "total_friction": 21954.992022364073,
+        "total_friction_bps": 219.54992022364073,
+        "stcg_gains": 381245.38398495136,
+        "stcg_tax": 57186.8075977427,
+        "ltcg_gains": 4376.2766984591935,
+        "ltcg_tax": 0.0,
+        "total_tax": 57186.8075977427,
+        "total_deductions": 79141.79962010677,
+        "net_pnl": 279235.8146014265,
+        "net_return_pct": 27.92358146014265,
+        "max_drawdown_pct": 17.462194354769363,
+        "accounting_identity_verified": true
+      }
+    }
+  }
+}

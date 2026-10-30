@@ -23,6 +23,8 @@ from nova.quant.contracts import (
     DataQualityStatus,
     MarketBar,
     NumericalValidationError,
+    PredictionAvailability,
+    PredictionType,
     validate_finite,
     validate_timezone_aware,
 )
@@ -248,3 +250,81 @@ class CausalRidgePredictor(BasePredictor):
             is_fallback=True,
             reason_codes=("FALLBACK_UNFITTED_MOMENTUM_HEURISTIC",),
         )
+
+class XGBoostPredictor(BasePredictor):
+    """Production adapter wrapping Person 2's trained XGBoost model as a BasePredictor."""
+
+    def __init__(self, model: Any, default_horizon: int = 1) -> None:
+        self.model = model
+        self.default_horizon = default_horizon
+        cfg = getattr(model, "config", None)
+        self.model_id = getattr(cfg, "model_id", "NOVA_XGBOOST")
+        self.model_version = getattr(cfg, "model_version", "3.0.0")
+
+    def predict(self, bars: Sequence[MarketBar]) -> PredictionResult:
+        if not bars:
+            raise ContractValidationError("Cannot predict on empty bar sequence")
+
+        latest_bar = bars[-1]
+        as_of = latest_bar.source_timestamp
+
+        if latest_bar.data_quality != DataQualityStatus.VALID:
+            return PredictionResult(
+                expected_return=0.0,
+                directional_probability=0.50,
+                confidence=0.0,
+                horizon_bars=self.default_horizon,
+                timestamp=as_of,
+                model_id=self.model_id,
+                model_version=self.model_version,
+                is_fallback=True,
+                reason_codes=("DATA_QUALITY_INVALID",),
+            )
+
+        try:
+            pred_contract = self.model.predict_bar(bars, as_of=as_of)
+            if pred_contract.availability_status != PredictionAvailability.READY:
+                return PredictionResult(
+                    expected_return=0.0,
+                    directional_probability=0.50,
+                    confidence=0.0,
+                    horizon_bars=pred_contract.horizon_bars,
+                    timestamp=as_of,
+                    model_id=self.model_id,
+                    model_version=self.model_version,
+                    is_fallback=True,
+                    reason_codes=(f"FALLBACK_{pred_contract.availability_status.value}",),
+                )
+
+            if pred_contract.prediction_type == PredictionType.DIRECTIONAL_PROBABILITY:
+                prob = float(pred_contract.prediction_value)
+                expected_ret = (prob - 0.50) * 0.02
+                conf = float(pred_contract.confidence_or_uncertainty)
+            else:
+                expected_ret = float(pred_contract.prediction_value)
+                prob = 1.0 / (1.0 + math.exp(-expected_ret * 50.0))
+                conf = float(pred_contract.confidence_or_uncertainty)
+
+            return PredictionResult(
+                expected_return=expected_ret,
+                directional_probability=prob,
+                confidence=conf,
+                horizon_bars=pred_contract.horizon_bars,
+                timestamp=as_of,
+                model_id=pred_contract.model_id,
+                model_version=pred_contract.model_version,
+                is_fallback=False,
+                reason_codes=(f"XGBOOST_{pred_contract.prediction_type.value}", f"PROB_{prob:.4f}"),
+            )
+        except Exception as exc:
+            return PredictionResult(
+                expected_return=0.0,
+                directional_probability=0.50,
+                confidence=0.0,
+                horizon_bars=self.default_horizon,
+                timestamp=as_of,
+                model_id=self.model_id,
+                model_version=self.model_version,
+                is_fallback=True,
+                reason_codes=(f"FALLBACK_ERROR_{str(exc)}",),
+            )

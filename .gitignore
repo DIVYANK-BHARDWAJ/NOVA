@@ -48,3 +48,13 @@ htmlcov/
 
 # Local reference PDFs
 *.pdf
+
+# Model weights & large binaries (>100MB)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# Scratch & temporary research scripts
+scratch/

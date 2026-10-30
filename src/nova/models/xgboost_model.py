@@ -564,16 +564,21 @@ class XGBoostPredictionModel:
 
         content = json.dumps(payload, indent=2)
         encoded_bytes = content.encode("utf-8")
-        with open(path, "wb") as fp:
+        out_path = Path(path)
+        if out_path.is_dir():
+            out_path = out_path / "model.json"
+        with open(out_path, "wb") as fp:
             fp.write(encoded_bytes)
         import hashlib
         checksum = hashlib.sha256(encoded_bytes).hexdigest()
-        return {"path": str(path), "checksum": checksum}
+        return {"path": str(out_path), "checksum": checksum}
 
     @classmethod
     def load(cls, model_path: Path | str) -> XGBoostPredictionModel:
         """Load trained model artifact from disk."""
         path = Path(model_path)
+        if path.is_dir():
+            path = path / "model.json"
         if not path.exists():
             raise FileNotFoundError(f"Model artifact not found at {path}")
 

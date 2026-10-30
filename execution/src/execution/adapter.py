@@ -708,7 +708,7 @@ class ExecutionAdapter:
             target_shares = int(notional / max(current_price, 1e-4))
             if action_val == "BUY":
                 quantity = max(0, target_shares - current_position_shares)
-            elif action_val == "REDUCE":
+            elif action_val in ("REDUCE", "SELL"):
                 quantity = max(0, current_position_shares - target_shares)
             else:
                 quantity = target_shares
