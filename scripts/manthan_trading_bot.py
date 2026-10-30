@@ -666,10 +666,11 @@ def main(max_messages: Optional[int] = None, env_file: Optional[str] = None) -> 
             trend_weight=0.40,
             mean_reversion_weight=0.40,
             predictor_weight=0.20,
-            min_net_edge_bps=2.0,
+            min_net_edge_bps=15.0,
             target_exposure=0.15,
             allow_short=False,
             use_regime_weighting=True,
+            enable_profit_realization=True,
             initial_capital=initial_cash,
         )
         decision_engine = SentinelDecisionEngine(
