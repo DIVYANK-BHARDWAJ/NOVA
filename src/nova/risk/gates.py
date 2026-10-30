@@ -36,7 +36,7 @@ class RiskConfiguration:
     initial_capital: float = 1000000.0       # MANTHAN ₹10,00,000 initial capital
     order_brokerage: float = 20.0            # Flat brokerage per executed order (₹20 per competition rules)
     allow_short: bool = False                # False by default for safety/back-compat, True for MANTHAN
-    enable_asymmetric_short: bool = True     # When True, enables conditional shorting in verified BEAR regimes
+    enable_asymmetric_short: bool = False    # When True, enables conditional shorting in verified BEAR regimes
     short_max_holding_days: int = 4          # Max days to hold short under asymmetric protocol (auto-exit before 10-day exchange rule)
     short_stop_loss_pct: float = 0.025       # Tight 2.5% stop-loss for short positions
     short_exposure_scale: float = 0.50       # 50% sizing scale for short positions
@@ -178,7 +178,7 @@ class DeterministicRiskGate:
             (proposed_action == ActionType.SHORT or proposed_exposure < -1e-6)
             and proposed_action not in (ActionType.COVER, ActionType.EXIT, ActionType.REDUCE)
         )
-        if is_short_intent and not self.config.allow_short:
+        if is_short_intent and not self.config.allow_short and not self.config.enable_asymmetric_short:
             reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
             return RiskGateResult(
                 is_approved=False,
@@ -325,8 +325,8 @@ class DeterministicRiskGate:
             if current_position_quantity > 1e-6:
                 drop_pct = (position_entry_price - current_market_price) / position_entry_price
                 if drop_pct >= self.config.stop_loss_pct:
-                    if t_sym:
-                        self.register_stop_loss_exit(t_sym, bar_timestamp)
+                    if ticker:
+                        self.register_stop_loss_exit(ticker, bar_timestamp)
                     reasons.append(f"STOP_LOSS_LONG_TRIGGERED_DROP_{drop_pct:.3%}_EXCEEDS_{self.config.stop_loss_pct:.3%}")
                     return RiskGateResult(
                         is_approved=True,
@@ -342,8 +342,8 @@ class DeterministicRiskGate:
                     else self.config.stop_loss_pct
                 )
                 if rise_pct >= effective_short_stop:
-                    if t_sym:
-                        self.register_stop_loss_exit(t_sym, bar_timestamp)
+                    if ticker:
+                        self.register_stop_loss_exit(ticker, bar_timestamp)
                     reasons.append(f"STOP_LOSS_SHORT_TRIGGERED_RISE_{rise_pct:.3%}_EXCEEDS_{effective_short_stop:.3%}")
                     return RiskGateResult(
                         is_approved=True,
@@ -351,6 +351,36 @@ class DeterministicRiskGate:
                         authorized_exposure=0.0,
                         risk_reason_codes=tuple(reasons),
                     )
+
+        # 5b. Market Breadth Filter
+        if market_breadth is not None:
+            if proposed_action == ActionType.BUY and market_breadth < self.config.market_breadth_buy_threshold:
+                reasons.append(f"REJECT_MARKET_BREADTH_INSUFFICIENT_{market_breadth:.2f}_BELOW_{self.config.market_breadth_buy_threshold:.2f}")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+            if proposed_action == ActionType.SHORT and market_breadth > self.config.market_breadth_short_threshold:
+                reasons.append(f"REJECT_MARKET_BREADTH_TOO_HIGH_FOR_SHORT_{market_breadth:.2f}_EXCEEDS_{self.config.market_breadth_short_threshold:.2f}")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+
+        # 5c. Anti-Churn Post-Stop Quarantine Filter
+        if ticker and proposed_action in (ActionType.BUY, ActionType.SHORT):
+            if self.is_ticker_in_cooldown(ticker, bar_timestamp):
+                reasons.append(f"REJECT_TICKER_IN_POST_STOP_QUARANTINE_{ticker.upper()}")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
 
         # 6. Position Exposure Cap Clamping
         capped_exposure = proposed_exposure
@@ -361,8 +391,25 @@ class DeterministicRiskGate:
                 f"EXPOSURE_CLAMPED_FROM_{proposed_exposure:.2f}_TO_MAX_{capped_exposure:.2f}"
             )
 
+        # 6b. Tiered Resuscitation Drawdown Multiplier
+        if drawdown_exposure_multiplier < 1.0 and proposed_action in (ActionType.BUY, ActionType.SHORT):
+            capped_exposure = capped_exposure * drawdown_exposure_multiplier
+
+        # 6c. Asymmetric Short Protocol Filter & Scaling
+        if proposed_action == ActionType.SHORT and self.config.enable_asymmetric_short:
+            if market_regime is not None and "BEAR" not in market_regime.upper():
+                reasons.append(f"REJECT_ASYMMETRIC_SHORT_REQUIRES_BEAR_REGIME_{market_regime}")
+                return RiskGateResult(
+                    is_approved=False,
+                    authorized_action=ActionType.NO_TRADE,
+                    authorized_exposure=0.0,
+                    risk_reason_codes=tuple(reasons),
+                )
+            capped_exposure = capped_exposure * self.config.short_exposure_scale
+            reasons.append(f"ASYMMETRIC_SHORT_SCALED_TO_{capped_exposure:.3f}")
+
         # 7. Short Prohibition Check
-        if proposed_action == ActionType.SHORT and not self.config.allow_short:
+        if proposed_action == ActionType.SHORT and not self.config.allow_short and not self.config.enable_asymmetric_short:
             reasons.append("SHORT_POSITIONS_PROHIBITED_BY_POLICY")
             return RiskGateResult(
                 is_approved=False,
